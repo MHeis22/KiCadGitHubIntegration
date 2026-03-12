@@ -44,14 +44,15 @@ class DiffEngine:
             with open(new_file, 'r', encoding='utf-8', errors='ignore') as f:
                 new_lines = f.readlines()
             
-            diff = difflib.unified_diff(old_lines, new_lines, fromfile='HEAD', tofile='Current', n=3)
+            diff = difflib.unified_diff(old_lines, new_lines, fromfile='Reference', tofile='Current', n=3)
             return "".join(list(diff))
         except Exception as e:
             return f"Error generating text diff: {e}"
 
-    def render_all_diffs(self, show_unchanged=False):
+    def render_all_diffs(self, show_unchanged=False, compare_target="HEAD"):
         """
         Scans for .kicad_pcb and .kicad_sch. Exports visual and logical files.
+        compare_target allows diffing against any git ref (HEAD, origin/main, etc.)
         Returns (list_of_diff_dicts, summary_string)
         """
         git_status = self.get_git_status()
@@ -65,27 +66,21 @@ class DiffEngine:
         diffs = []
         summary_lines = []
         
-        # 2. Process each file
         for fname in target_files:
             file_path = os.path.join(self.project_dir, fname)
             status_code = git_status.get(fname)
             
-            # Determine human-readable status
             if status_code in ['M', 'AM']: status_text = "Modified"
             elif status_code in ['A', '??']: status_text = "New/Untracked"
             else: status_text = "Unchanged"
             
-            # Skip if unchanged and user didn't request them
             if status_text == "Unchanged" and not show_unchanged:
                 continue
                 
             summary_lines.append(f"{fname}: {status_text}")
             
-            # Setup temp output paths
             safe_name = fname.replace('.', '_')
             is_pcb = fname.endswith('.kicad_pcb')
-            
-            # Use SVG for boards, PDF for schematics
             ext = "svg" if is_pcb else "pdf"
             
             curr_out = os.path.join(self.tmp_dir, f"curr_{safe_name}.{ext}")
@@ -93,7 +88,6 @@ class DiffEngine:
             old_board_tmp = os.path.join(self.tmp_dir, f"tmp_git_{fname}")
             curr_board_tmp = os.path.join(self.tmp_dir, f"tmp_curr_{fname}")
             
-            # Clear old temp files
             if os.path.exists(curr_out): os.remove(curr_out)
             if os.path.exists(old_out): os.remove(old_out)
 
@@ -101,64 +95,48 @@ class DiffEngine:
             if is_pcb:
                 cli_args.extend(["--layers", "F.Cu,F.Silkscreen,Edge.Cuts", "--exclude-drawing-sheet"])
                 
-            # Variables for logical diffing (only used for Schematics)
             netlist_diff = ""
             bom_diff = ""
 
             try:
-                # -----------------------
-                # Current Version Exports
-                # -----------------------
+                # --- Current Version Exports ---
                 curr_target = file_path
-                
-                # To prevent KiCad CLI from automatically rendering the entire hierarchical project
-                # when diffing a schematic, we copy the current file to the isolated temp directory.
-                # This ensures the new PDF matches the old PDF (which is also an isolated temp file),
-                # meaning both will only render the specific sheet being evaluated.
                 if not is_pcb:
                     shutil.copy2(file_path, curr_board_tmp)
                     curr_target = curr_board_tmp
 
-                # Visual Export
                 subprocess.run(cli_args + [curr_target, "--output", curr_out], 
                                check=True, capture_output=True, text=True, input="y\n",
                                creationflags=CREATE_NO_WINDOW)
                 
-                # Logical Export (Netlist + BOM for Current Schematic)
                 if not is_pcb:
                     curr_net = os.path.join(self.tmp_dir, f"curr_{safe_name}.net")
                     curr_bom = os.path.join(self.tmp_dir, f"curr_{safe_name}.csv")
                     subprocess.run([self.kicad_cli, "sch", "export", "netlist", curr_target, "--output", curr_net], capture_output=True, creationflags=CREATE_NO_WINDOW)
                     subprocess.run([self.kicad_cli, "sch", "export", "bom", curr_target, "--output", curr_bom], capture_output=True, creationflags=CREATE_NO_WINDOW)
                 
-                # -----------------------
-                # Old (HEAD) Version Exports
-                # -----------------------
+                # --- Reference (HEAD or Remote) Version Exports ---
                 has_old = False
-                if status_text != "New/Untracked":
-                    with open(old_board_tmp, "wb") as f:
-                        res = subprocess.run([self.git_cmd, "-C", self.project_dir, "show", f"HEAD:{fname}"],
-                                             stdout=f, stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW)
+                # If we are comparing against something other than HEAD, we always try to find the file
+                with open(old_board_tmp, "wb") as f:
+                    res = subprocess.run([self.git_cmd, "-C", self.project_dir, "show", f"{compare_target}:{fname}"],
+                                         stdout=f, stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW)
+                
+                if res.returncode == 0:
+                    subprocess.run(cli_args + [old_board_tmp, "--output", old_out], 
+                                   check=True, capture_output=True, text=True, input="y\n",
+                                   creationflags=CREATE_NO_WINDOW)
+                    has_old = True
                     
-                    if res.returncode == 0:
-                        # Visual Export for Old
-                        subprocess.run(cli_args + [old_board_tmp, "--output", old_out], 
-                                       check=True, capture_output=True, text=True, input="y\n",
-                                       creationflags=CREATE_NO_WINDOW)
-                        has_old = True
+                    if not is_pcb:
+                        old_net = os.path.join(self.tmp_dir, f"old_{safe_name}.net")
+                        old_bom = os.path.join(self.tmp_dir, f"old_{safe_name}.csv")
+                        subprocess.run([self.kicad_cli, "sch", "export", "netlist", old_board_tmp, "--output", old_net], capture_output=True, creationflags=CREATE_NO_WINDOW)
+                        subprocess.run([self.kicad_cli, "sch", "export", "bom", old_board_tmp, "--output", old_bom], capture_output=True, creationflags=CREATE_NO_WINDOW)
                         
-                        # Logical Export (Netlist + BOM for Old Schematic)
-                        if not is_pcb:
-                            old_net = os.path.join(self.tmp_dir, f"old_{safe_name}.net")
-                            old_bom = os.path.join(self.tmp_dir, f"old_{safe_name}.csv")
-                            subprocess.run([self.kicad_cli, "sch", "export", "netlist", old_board_tmp, "--output", old_net], capture_output=True, creationflags=CREATE_NO_WINDOW)
-                            subprocess.run([self.kicad_cli, "sch", "export", "bom", old_board_tmp, "--output", old_bom], capture_output=True, creationflags=CREATE_NO_WINDOW)
-                            
-                            # Execute the diff comparison
-                            netlist_diff = self._generate_text_diff(old_net, curr_net)
-                            bom_diff = self._generate_text_diff(old_bom, curr_bom)
+                        netlist_diff = self._generate_text_diff(old_net, curr_net)
+                        bom_diff = self._generate_text_diff(old_bom, curr_bom)
 
-                # Append to final payload
                 diffs.append({
                     "name": fname,
                     "status": status_text,
@@ -171,5 +149,5 @@ class DiffEngine:
             except Exception as e:
                 print(f"Error rendering {fname}: {e}")
 
-        summary = "\n".join(summary_lines) if summary_lines else "No files changed."
+        summary = "\n".join(summary_lines) if summary_lines else "No files found."
         return diffs, summary
