@@ -36,6 +36,29 @@ class DiffEngine:
             pass # Not a git repo or git error
         return status_dict
 
+    def get_git_targets(self):
+        """Returns a list of local branches and recent commits for comparison."""
+        targets = ["HEAD"] # Default comparison target
+        try:
+            # Get local branches
+            res = subprocess.run([self.git_cmd, "-C", self.project_dir, "branch", "--format=%(refname:short)"], 
+                                 capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
+            for line in res.stdout.split('\n'):
+                target = line.strip()
+                if target and target not in targets:
+                    targets.append(target)
+            
+            # Get last 10 commits with abbreviated hash and subject
+            res = subprocess.run([self.git_cmd, "-C", self.project_dir, "log", "-n", "10", "--format=%h (%s)"], 
+                                 capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
+            for line in res.stdout.split('\n'):
+                target = line.strip()
+                if target:
+                    targets.append(target)
+        except:
+            pass
+        return targets
+
     def _get_pcb_layers(self, pcb_file):
         """Quickly parse the .kicad_pcb file to find active copper layers and technical layers."""
         layers = ["F.Cu", "B.Cu", "F.Silkscreen", "B.Silkscreen", "Edge.Cuts"]
@@ -125,6 +148,9 @@ class DiffEngine:
         diffs = []
         summary_lines = []
         
+        # Resolve target to hash if it looks like "h (%s)" from get_git_targets
+        actual_target = compare_target.split(' ')[0] if ' ' in compare_target else compare_target
+        
         for fname in target_files:
             file_path = os.path.join(self.project_dir, fname)
             status_code = git_status.get(fname)
@@ -171,7 +197,7 @@ class DiffEngine:
                 # 1. Export Git Reference version first if it exists
                 has_old = False
                 with open(old_board_tmp, "wb") as f:
-                    res = subprocess.run([self.git_cmd, "-C", self.project_dir, "show", f"{compare_target}:{fname}"],
+                    res = subprocess.run([self.git_cmd, "-C", self.project_dir, "show", f"{actual_target}:{fname}"],
                                          stdout=f, stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW)
                 if res.returncode == 0:
                     has_old = True
