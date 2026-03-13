@@ -8,7 +8,7 @@ class DiffWindow:
     def __init__(self, diffs, summary_text, target_name="HEAD"):
         """
         diffs expects a list of dicts: 
-        [{'name': '...', 'status': '...', 'visuals': {...}, 'health': {'new':[], 'resolved':[], 'unresolved':[]}}]
+        [{'name': '...', 'status': '...', 'visuals': {...}, 'bom_data': {'curr':{}, 'old':{}}}]
         """
         self.diffs = diffs
         self.summary_text = summary_text.replace('\n', '<br>')
@@ -37,7 +37,7 @@ class DiffWindow:
                 "status": d.get('status', 'Unknown'),
                 "visuals": processed_visuals,
                 "netlistDiff": d.get('netlist_diff', ''),
-                "bomDiff": d.get('bom_diff', ''),
+                "bomData": d.get('bom_data', {'curr': {}, 'old': {}}),
                 "pcbLogicDiff": d.get('pcb_logic_diff', ''),
                 "todos": d.get('todos', {'curr': [], 'old': []}),
                 "dimensions": d.get('dimensions', {'curr': None, 'old': None}),
@@ -137,7 +137,7 @@ class DiffWindow:
         .overlay-mode {{ opacity: 0.8; background: transparent; mix-blend-mode: screen; z-index: 10; }}
         .silk-overlay {{ z-index: 20; opacity: 1.0; background: transparent; mix-blend-mode: screen; filter: brightness(1.1) contrast(1.2); }}
 
-        #text-diff-container, #todos-container, #health-container {{ flex: 1; padding: 20px; overflow-y: auto; background: var(--diff-bg); font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; white-space: pre-wrap; line-height: 1.5; transition: 0.3s; }}
+        #text-diff-container, #todos-container, #health-container, #bom-container {{ flex: 1; padding: 20px; overflow-y: auto; background: var(--diff-bg); font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; white-space: pre-wrap; line-height: 1.5; transition: 0.3s; }}
         .diff-line {{ padding: 0 5px; border-radius: 2px; }}
         .diff-header {{ color: var(--text-muted); font-weight: bold; margin-top: 10px; }}
         .diff-add {{ color: #4CAF50; background-color: var(--diff-add); }}
@@ -145,6 +145,19 @@ class DiffWindow:
         .diff-mod {{ color: #FF9800; background-color: var(--diff-mod); }}
         .diff-chunk {{ color: #00bcd4; font-weight: bold; }}
         .diff-normal {{ color: var(--text-main); }}
+
+        /* --- Modern Grouped BOM --- */
+        #bom-container {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; white-space: normal; padding: 20px; }}
+        .bom-table-wrapper {{ height: 100%; overflow: auto; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-sidebar); }}
+        .bom-table {{ width: 100%; border-collapse: collapse; text-align: left; }}
+        .bom-table th, .bom-table td {{ padding: 10px 14px; border-bottom: 1px solid var(--border-color); font-size: 13px; vertical-align: top; }}
+        .bom-table th {{ background: var(--bg-header); position: sticky; top: 0; z-index: 10; font-weight: bold; color: var(--text-muted); box-shadow: 0 1px 0 var(--border-color); }}
+        .bom-row-add td {{ background-color: var(--diff-add); }}
+        .bom-row-del td {{ background-color: var(--diff-del); }}
+        .bom-row-mod td {{ background-color: var(--diff-mod); }}
+        .bom-table tr:hover td {{ background-color: var(--bg-hover); }}
+        .bom-table del {{ opacity: 0.6; color: #F44336; text-decoration: line-through; margin-right: 6px; }}
+        .bom-table b {{ color: #4CAF50; font-weight: 600; }}
 
         /* Reusable Flex Columns (TODOs and Health) */
         .todos-wrapper {{ display: flex; gap: 20px; height: 100%; }}
@@ -195,7 +208,7 @@ class DiffWindow:
                         <button class="view-btn" id="tab-todos" onclick="switchTab('todos')">TODOs</button>
                         <button class="view-btn" id="tab-pcb-logic" onclick="switchTab('pcb-logic')">Net/Comp Changes</button>
                         <button class="view-btn" id="tab-netlist" onclick="switchTab('netlist')">Logic (Netlist)</button>
-                        <button class="view-btn" id="tab-bom" onclick="switchTab('bom')">BOM Diff</button>
+                        <button class="view-btn" id="tab-bom" onclick="switchTab('bom')">Modern BOM</button>
                     </div>
                 </div>
                 
@@ -235,6 +248,7 @@ class DiffWindow:
         </div>
         
         <div id="text-diff-container" class="hidden"></div>
+        <div id="bom-container" class="hidden"></div>
         <div id="todos-container" class="hidden"></div>
         <div id="health-container" class="hidden"></div>
     </div>
@@ -280,6 +294,7 @@ class DiffWindow:
         
         const viewerContainer = document.getElementById('viewer-container');
         const textDiffContainer = document.getElementById('text-diff-container');
+        const bomContainer = document.getElementById('bom-container');
         const todosContainer = document.getElementById('todos-container');
         const healthContainer = document.getElementById('health-container');
         const viewToggles = document.getElementById('view-toggles');
@@ -365,7 +380,7 @@ class DiffWindow:
             setTransform();
         }};
 
-        function escapeHtml(unsafe) {{ return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }}
+        function escapeHtml(unsafe) {{ return unsafe ? unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : ''; }}
 
         function formatHealthItem(text) {{
             let safe = escapeHtml(text);
@@ -386,6 +401,63 @@ class DiffWindow:
                 if (safeLine.startsWith('@@')) return `<div class="diff-line diff-chunk">${{safeLine}}</div>`;
                 return `<div class="diff-line diff-normal">${{safeLine}}</div>`;
             }}).join('');
+        }}
+
+        // Builds a highly readable grouped BOM showing exact diffs
+        function renderGroupedBom(oldBom, currBom) {{
+            const getSig = (item) => `${{item.val}}|${{item.fp}}|${{item.mpn}}|${{item.desc}}`;
+            
+            const oldGroups = {{}};
+            for (const [ref, item] of Object.entries(oldBom)) {{
+                const sig = getSig(item);
+                if (!oldGroups[sig]) oldGroups[sig] = {{ ...item, refs: [], qty: 0 }};
+                oldGroups[sig].refs.push(ref);
+                oldGroups[sig].qty++;
+            }}
+            
+            const currGroups = {{}};
+            for (const [ref, item] of Object.entries(currBom)) {{
+                const sig = getSig(item);
+                if (!currGroups[sig]) currGroups[sig] = {{ ...item, refs: [], qty: 0 }};
+                currGroups[sig].refs.push(ref);
+                currGroups[sig].qty++;
+            }}
+            
+            const allSigs = new Set([...Object.keys(oldGroups), ...Object.keys(currGroups)]);
+            const sortedSigs = Array.from(allSigs).sort();
+            
+            if (sortedSigs.length === 0) {{
+                return `<div class="no-data-msg" style="padding: 20px;">No components found (or all have 'Exclude from board' enabled).</div>`;
+            }}
+
+            let html = `<div class="bom-table-wrapper"><table class="bom-table">
+                <thead><tr><th style="width:120px;">Status</th><th>Qty</th><th>References</th><th>Value</th><th>Footprint</th><th>MPN</th><th>Description</th></tr></thead>
+                <tbody>`;
+                
+            for (const sig of sortedSigs) {{
+                const o = oldGroups[sig];
+                const c = currGroups[sig];
+                
+                if (c && !o) {{
+                    html += `<tr class="bom-row-add"><td>➕ New Part</td><td>${{c.qty}}</td><td>${{c.refs.sort().join(', ')}}</td><td>${{escapeHtml(c.val)}}</td><td>${{escapeHtml(c.fp)}}</td><td>${{escapeHtml(c.mpn)}}</td><td>${{escapeHtml(c.desc)}}</td></tr>`;
+                }} else if (o && !c) {{
+                    html += `<tr class="bom-row-del"><td>➖ Removed</td><td><del>${{o.qty}}</del> 0</td><td><del>${{o.refs.sort().join(', ')}}</del></td><td>${{escapeHtml(o.val)}}</td><td>${{escapeHtml(o.fp)}}</td><td>${{escapeHtml(o.mpn)}}</td><td>${{escapeHtml(o.desc)}}</td></tr>`;
+                }} else {{
+                    const cRefsStr = c.refs.sort().join(', ');
+                    const oRefsStr = o.refs.sort().join(', ');
+                    
+                    if (c.qty !== o.qty || cRefsStr !== oRefsStr) {{
+                        let qtyHtml = c.qty !== o.qty ? `<del>${{o.qty}}</del> <b>${{c.qty}}</b>` : c.qty;
+                        let refHtml = cRefsStr !== oRefsStr ? `<div style="font-size: 0.85em; color: #F44336; text-decoration: line-through;">${{oRefsStr}}</div><div style="color: #4CAF50;">${{cRefsStr}}</div>` : cRefsStr;
+                        
+                        html += `<tr class="bom-row-mod"><td>📝 Changed</td><td>${{qtyHtml}}</td><td>${{refHtml}}</td><td>${{escapeHtml(c.val)}}</td><td>${{escapeHtml(c.fp)}}</td><td>${{escapeHtml(c.mpn)}}</td><td>${{escapeHtml(c.desc)}}</td></tr>`;
+                    }} else {{
+                        html += `<tr><td>✓ Unchanged</td><td>${{c.qty}}</td><td>${{cRefsStr}}</td><td>${{escapeHtml(c.val)}}</td><td>${{escapeHtml(c.fp)}}</td><td>${{escapeHtml(c.mpn)}}</td><td>${{escapeHtml(c.desc)}}</td></tr>`;
+                    }}
+                }}
+            }}
+            html += `</tbody></table></div>`;
+            return html;
         }}
 
         function init() {{
@@ -474,9 +546,7 @@ class DiffWindow:
 
             document.getElementById('tab-netlist').classList.toggle('hidden', !isSch);
             document.getElementById('tab-bom').classList.toggle('hidden', !isSch);
-            // Force the Net/Comp Changes tab to always remain visible
             document.getElementById('tab-pcb-logic').classList.remove('hidden');
-            // Hide DRC Violations tab for Schematics
             document.getElementById('tab-health').classList.toggle('hidden', isSch);
 
             noSelectionEl.classList.add('hidden');
@@ -484,6 +554,7 @@ class DiffWindow:
             
             viewerContainer.classList.add('hidden');
             textDiffContainer.classList.add('hidden');
+            bomContainer.classList.add('hidden');
             todosContainer.classList.add('hidden');
             healthContainer.classList.add('hidden');
 
@@ -494,7 +565,6 @@ class DiffWindow:
                 
                 if (dims.curr) {{
                     let dimText = `📐 ${{dims.curr.w}} x ${{dims.curr.h}} mm (${{dims.curr.area}} mm²)`;
-                    // Highlight if dimensions changed
                     if (dims.old && (dims.old.w !== dims.curr.w || dims.old.h !== dims.curr.h)) {{
                         dimText = `📐 <span style="text-decoration:line-through; color:#F44336; margin-right:4px;">${{dims.old.w}}x${{dims.old.h}}</span> ➔ <span style="color:#4CAF50; margin-left:4px;">${{dims.curr.w}} x ${{dims.curr.h}} mm</span>`;
                     }}
@@ -506,15 +576,27 @@ class DiffWindow:
                 dimContainer.classList.add('hidden');
             }}
 
-            // --- Logical Diffs (PCB or SCH) ---
-            if (currentTab === 'netlist' || currentTab === 'bom' || currentTab === 'pcb-logic') {{
+            // --- Modern BOM Diff ---
+            if (currentTab === 'bom') {{
+                btnToggleDiff.classList.add('hidden'); btnToggleOverlay.classList.add('hidden'); btnToggleSwipe.classList.add('hidden'); resetBtn.classList.add('hidden');
+                bomContainer.classList.remove('hidden');
+                
+                const currBom = file.bomData.curr || {{}};
+                const oldBom = file.bomData.old || {{}};
+                
+                bomContainer.innerHTML = renderGroupedBom(oldBom, currBom);
+                statusTextEl.innerHTML = `Showing: <strong>Modern BOM</strong>`;
+                return;
+            }}
+
+            // --- Logical Diffs (PCB or SCH Netlist) ---
+            if (currentTab === 'netlist' || currentTab === 'pcb-logic') {{
                 btnToggleDiff.classList.add('hidden'); btnToggleOverlay.classList.add('hidden'); btnToggleSwipe.classList.add('hidden'); resetBtn.classList.add('hidden');
                 textDiffContainer.classList.remove('hidden');
                 
                 let diffContent = "";
                 let tabName = "";
                 if (currentTab === 'netlist') {{ diffContent = file.netlistDiff; tabName = "Netlist Text Diff"; }}
-                else if (currentTab === 'bom') {{ diffContent = file.bomDiff; tabName = "BOM Text Diff"; }}
                 else if (currentTab === 'pcb-logic') {{ diffContent = file.pcbLogicDiff; tabName = "Net/Component Changes"; }}
 
                 textDiffContainer.innerHTML = diffContent ? formatDiff(diffContent) : `<span style="color:var(--text-muted);">No structural changes found.</span>`;

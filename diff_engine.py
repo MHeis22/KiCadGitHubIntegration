@@ -124,12 +124,10 @@ class DiffEngine:
             import pcbnew
             pts = []
             for k in range(chain.GetPointCount()):
-                # Handle KiCad 6/7/8 VECTOR2I API differences
                 p = chain.CPoint(k) if hasattr(chain, 'CPoint') else chain.Point(k)
                 x = getattr(p, 'x', p[0] if hasattr(p, '__getitem__') else 0)
                 y = getattr(p, 'y', p[1] if hasattr(p, '__getitem__') else 0)
                 
-                # Convert internal units to mm safely
                 if hasattr(pcbnew, 'ToMM'):
                     x_mm = pcbnew.ToMM(x)
                     y_mm = pcbnew.ToMM(y)
@@ -159,10 +157,8 @@ class DiffEngine:
             import pcbnew
             board = pcbnew.LoadBoard(file_path)
             
-            # Get bounding box of the board edges (includes line thickness)
             bbox = board.GetBoardEdgesBoundingBox()
             
-            # Safely convert internal units to millimeters
             if hasattr(pcbnew, 'ToMM'):
                 w_mm = pcbnew.ToMM(bbox.GetWidth())
                 h_mm = pcbnew.ToMM(bbox.GetHeight())
@@ -170,7 +166,6 @@ class DiffEngine:
                 w_mm = bbox.GetWidth() / 1000000.0
                 h_mm = bbox.GetHeight() / 1000000.0
                 
-            # Find the line thickness used on the Edge.Cuts layer
             line_thickness_mm = 0.0
             for item in board.GetDrawings():
                 if item.GetLayer() == pcbnew.Edge_Cuts:
@@ -181,7 +176,6 @@ class DiffEngine:
                             line_thickness_mm = item.GetWidth() / 1000000.0
                         break
                         
-            # Subtract line thickness to match KiCad's dimension tools (centerline to centerline)
             if w_mm > line_thickness_mm and h_mm > line_thickness_mm:
                 w_mm -= line_thickness_mm
                 h_mm -= line_thickness_mm
@@ -189,11 +183,9 @@ class DiffEngine:
             if w_mm <= 0.1 or h_mm <= 0.1:
                 return None
                 
-            # --- Calculate True Polygon Area ---
             true_area_mm2 = 0.0
             
             try:
-                # Try KiCad 8 native area extraction first
                 if hasattr(board, 'GetBoardArea'):
                     true_area_mm2 = board.GetBoardArea() / 1000000000000.0
             except:
@@ -203,7 +195,6 @@ class DiffEngine:
                 try:
                     poly_set = None
                     try:
-                        # Method A: Try passing a SHAPE_POLY_SET instance (KiCad 6/7/8 SWIG standard)
                         ps = pcbnew.SHAPE_POLY_SET()
                         res = board.GetBoardPolygonOutlines(ps)
                         
@@ -217,7 +208,6 @@ class DiffEngine:
                         if poly_set is None:
                             poly_set = ps
                     except TypeError:
-                        # Method B: SWIG treated the output parameter as a return value
                         res = board.GetBoardPolygonOutlines()
                         if hasattr(res, 'OutlineCount') and not isinstance(res, bool):
                             poly_set = res
@@ -232,14 +222,12 @@ class DiffEngine:
                             outline = poly_set.Outline(i)
                             true_area_mm2 += self._get_chain_area(outline)
                             
-                            # Subtract cutouts/holes from the main area
                             for j in range(poly_set.HoleCount(i)):
                                 hole = poly_set.Hole(i, j)
                                 true_area_mm2 -= self._get_chain_area(hole)
                 except Exception as e:
                     print(f"Polygon Area Extraction Error: {e}")
                 
-            # Fallback to W x H if polygon extraction fails entirely (e.g. malformed outlines)
             if true_area_mm2 <= 0.1:
                 true_area_mm2 = w_mm * h_mm
 
@@ -266,7 +254,6 @@ class DiffEngine:
                         name_match = re.search(r'^([^"\s\)]+)', block)
                     name = name_match.group(1) if name_match else "Unknown"
                     
-                    # Supports KiCad 6/7 fp_text AND KiCad 8 properties
                     ref_match = re.search(r'\((?:fp_text\s+reference|property\s+"Reference")\s+"([^"]+)"', block)
                     val_match = re.search(r'\((?:fp_text\s+value|property\s+"Value")\s+"([^"]*)"', block)
                     
@@ -285,25 +272,61 @@ class DiffEngine:
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
-                blocks = re.split(r'\(symbol\s+', content)[1:]
+                blocks = re.split(r'\(\s*symbol\s+', content)[1:]
                 for block in blocks:
-                    # Update regexes to correctly parse strict quote encapsulation
                     lib_match = re.search(r'\(lib_id\s+"([^"]+)"', block)
-                    fp_match  = re.search(r'\(property\s+"Footprint"\s+"([^"]*)"', block)
-                    ref_match = re.search(r'\(property\s+"Reference"\s+"([^"]+)"', block)
-                    val_match = re.search(r'\(property\s+"Value"\s+"([^"]*)"', block)
+                    fp_match  = re.search(r'\(\s*property\s+"Footprint"\s+"([^"]*)"', block)
+                    ref_match = re.search(r'\(\s*property\s+"Reference"\s+"([^"]+)"', block)
+                    val_match = re.search(r'\(\s*property\s+"Value"\s+"([^"]*)"', block)
                     
                     if ref_match:
                         ref = ref_match.group(1)
                         if ref == "Reference": continue
                         
-                        # Use actual Footprint property, fallback to lib_id if empty
                         fp = fp_match.group(1) if fp_match and fp_match.group(1) else (lib_match.group(1) if lib_match else "Unknown")
                         val = val_match.group(1) if val_match else ""
                         components[ref] = {'fp': fp, 'val': val}
         except Exception as e:
             print(f"SCH Structure Error: {e}")
         return components
+
+    def _get_bom_data(self, file_path):
+        """Extracts structured BOM data, respecting Exclude from Board / DNP flags."""
+        bom = {}
+        if not file_path or not os.path.exists(file_path):
+            return bom
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                blocks = re.split(r'\(\s*symbol\s+', content)[1:]
+                for block in blocks:
+                    # Respect KiCad exclusion flags
+                    if re.search(r'\(\s*on_board\s+no\s*\)', block):
+                        continue # Excluded from board
+                    if re.search(r'\(\s*in_bom\s+no\s*\)', block):
+                        continue # Excluded from BOM entirely
+                        
+                    ref_match = re.search(r'\(\s*property\s+"Reference"\s+"([^"]+)"', block)
+                    if not ref_match: continue
+                    ref = ref_match.group(1)
+                    if ref == "Reference": continue # Ignore template symbols
+                    
+                    val_match = re.search(r'\(\s*property\s+"Value"\s+"([^"]*)"', block)
+                    fp_match  = re.search(r'\(\s*property\s+"Footprint"\s+"([^"]*)"', block)
+                    desc_match = re.search(r'\(\s*property\s+"Description"\s+"([^"]*)"', block)
+                    
+                    # Catch common MPN property variants
+                    mpn_match = re.search(r'\(\s*property\s+"(?:MPN|Part Number|Manufacturer Part Number|Manufacturer_Part_Number|LCSC Part|LCSC)"\s+"([^"]*)"', block, re.IGNORECASE)
+                    
+                    bom[ref] = {
+                        'val': val_match.group(1) if val_match else "",
+                        'fp': fp_match.group(1) if fp_match else "",
+                        'desc': desc_match.group(1) if desc_match else "",
+                        'mpn': mpn_match.group(1) if mpn_match else ""
+                    }
+        except Exception as e:
+            print(f"BOM Extraction Error: {e}")
+        return bom
 
     def _compare_logic_data(self, old_data, curr_data):
         """Compares two component dictionaries and returns a text diff."""
@@ -347,7 +370,6 @@ class DiffEngine:
         safe_name = os.path.basename(file_path).replace(' ', '_')
         out_json = os.path.join(self.tmp_dir, f"report_{safe_name}.json")
         
-        # Clean up previous run
         if os.path.exists(out_json):
             try: os.remove(out_json)
             except: pass
@@ -361,13 +383,11 @@ class DiffEngine:
                 with open(out_json, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read().strip()
                 
-                # Check if it successfully exported JSON
                 if content.startswith('{'):
                     import json
                     data = json.loads(content)
                     violations = []
                     
-                    # Process standard violations
                     for v in data.get("violations", []):
                         severity = v.get("severity", "warning")
                         desc = v.get("description", "Unknown violation")
@@ -377,9 +397,8 @@ class DiffEngine:
                             desc = f"{desc}: {items_str}"
                         violations.append(f"[{severity.upper()}] {desc}")
                         
-                    # Process unrouted nets / unconnected items
                     for u in data.get("unconnected_items", []):
-                        severity = u.get("severity", "error") # Unconnected nets are critical
+                        severity = u.get("severity", "error") 
                         desc = u.get("description", "Unconnected item")
                         items = u.get("items", [])
                         if items:
@@ -389,7 +408,6 @@ class DiffEngine:
                         
                     return violations
                 else:
-                    # Fallback if KiCad generated text instead of JSON (older versions)
                     lines = [line.strip() for line in content.split('\n') if line.strip() and not line.startswith('**')]
                     return lines
         except Exception as e:
@@ -469,7 +487,7 @@ class DiffEngine:
             
             visuals = {} 
             netlist_diff = ""
-            bom_diff = ""
+            bom_data = {"curr": {}, "old": {}}
             pcb_logic_diff = ""
             health_data = {"new": [], "resolved": [], "unresolved": []}
             dims_data = {"curr": None, "old": None}
@@ -543,19 +561,16 @@ class DiffEngine:
 
                 if not is_pcb:
                     curr_net = os.path.join(self.tmp_dir, f"curr_{safe_name}.net")
-                    curr_bom = os.path.join(self.tmp_dir, f"curr_{safe_name}.csv")
                     if status_text != "Deleted":
                         subprocess.run([self.kicad_cli, "sch", "export", "netlist", file_path, "--output", curr_net], capture_output=True, cwd=self.project_dir, creationflags=CREATE_NO_WINDOW)
-                        subprocess.run([self.kicad_cli, "sch", "export", "bom", file_path, "--output", curr_bom], capture_output=True, cwd=self.project_dir, creationflags=CREATE_NO_WINDOW)
+                        bom_data["curr"] = self._get_bom_data(file_path)
                     
                     if has_old:
                         old_net = os.path.join(self.tmp_dir, f"old_{safe_name}.net")
-                        old_bom = os.path.join(self.tmp_dir, f"old_{safe_name}.csv")
                         subprocess.run([self.kicad_cli, "sch", "export", "netlist", old_board_tmp, "--output", old_net], capture_output=True, cwd=self.project_dir, creationflags=CREATE_NO_WINDOW)
-                        subprocess.run([self.kicad_cli, "sch", "export", "bom", old_board_tmp, "--output", old_bom], capture_output=True, cwd=self.project_dir, creationflags=CREATE_NO_WINDOW)
                         
                         netlist_diff = self._generate_text_diff(old_net, curr_net)
-                        bom_diff = self._generate_text_diff(old_bom, curr_bom)
+                        bom_data["old"] = self._get_bom_data(old_board_tmp)
 
                 # 4. Extract TODOs
                 curr_todos = self._extract_todos(file_path) if status_text != "Deleted" else []
@@ -580,7 +595,7 @@ class DiffEngine:
                     "status": status_text,
                     "visuals": visuals,
                     "netlist_diff": netlist_diff,
-                    "bom_diff": bom_diff,
+                    "bom_data": bom_data,
                     "pcb_logic_diff": pcb_logic_diff,
                     "todos": {
                         "curr": curr_todos,
