@@ -3,6 +3,7 @@ import tempfile
 import webbrowser
 import pathlib
 import json
+import base64
 
 class DiffWindow:
     def __init__(self, diffs, summary_text, target_name="HEAD"):
@@ -14,6 +15,20 @@ class DiffWindow:
         self.summary_text = summary_text.replace('\n', '<br>')
         self.target_name = target_name
 
+    def _get_data_uri(self, file_path):
+        """Reads a file and returns a Base64 encoded Data URI for embedding."""
+        if not file_path or not os.path.exists(file_path):
+            return ""
+        try:
+            ext = file_path.lower().split('.')[-1]
+            mime_type = "image/svg+xml" if ext == "svg" else ("application/pdf" if ext == "pdf" else "image/png")
+            with open(file_path, "rb") as f:
+                encoded = base64.b64encode(f.read()).decode('utf-8')
+            return f"data:{mime_type};base64,{encoded}"
+        except Exception as e:
+            print(f"Error encoding {file_path}: {e}")
+            return ""
+
     def Show(self):
         html_path = os.path.join(tempfile.gettempdir(), "kicad_diff_viewer.html")
         
@@ -22,13 +37,9 @@ class DiffWindow:
         for d in self.diffs:
             processed_visuals = {}
             for layer, paths in d.get('visuals', {}).items():
-                curr_uri = pathlib.Path(paths['curr']).as_uri() if paths.get('curr') else ""
-                old_uri = pathlib.Path(paths['old']).as_uri() if paths.get('old') else ""
-                
-                if curr_uri and paths.get('curr', '').lower().endswith('.pdf'):
-                    curr_uri += "#page=1&navpanes=0&view=FitH"
-                if old_uri and paths.get('old', '').lower().endswith('.pdf'):
-                    old_uri += "#page=1&navpanes=0&view=FitH"
+                # Convert the local files directly into Base64 strings
+                curr_uri = self._get_data_uri(paths.get('curr'))
+                old_uri = self._get_data_uri(paths.get('old'))
                 
                 processed_visuals[layer] = {"curr": curr_uri, "old": old_uri}
 
@@ -208,7 +219,7 @@ class DiffWindow:
                         <button class="view-btn" id="tab-todos" onclick="switchTab('todos')">TODOs</button>
                         <button class="view-btn" id="tab-pcb-logic" onclick="switchTab('pcb-logic')">Net/Comp Changes</button>
                         <button class="view-btn" id="tab-netlist" onclick="switchTab('netlist')">Logic (Netlist)</button>
-                        <button class="view-btn" id="tab-bom" onclick="switchTab('bom')">BOM</button>
+                        <button class="view-btn" id="tab-bom" onclick="switchTab('bom')">Modern BOM</button>
                     </div>
                 </div>
                 
@@ -576,7 +587,7 @@ class DiffWindow:
                 dimContainer.classList.add('hidden');
             }}
 
-            // --- BOM Diff ---
+            // --- Modern BOM Diff ---
             if (currentTab === 'bom') {{
                 btnToggleDiff.classList.add('hidden'); btnToggleOverlay.classList.add('hidden'); btnToggleSwipe.classList.add('hidden'); resetBtn.classList.add('hidden');
                 bomContainer.classList.remove('hidden');
@@ -585,7 +596,7 @@ class DiffWindow:
                 const oldBom = file.bomData.old || {{}};
                 
                 bomContainer.innerHTML = renderGroupedBom(oldBom, currBom);
-                statusTextEl.innerHTML = `Showing: <strong>BOM</strong>`;
+                statusTextEl.innerHTML = `Showing: <strong>Modern BOM</strong>`;
                 return;
             }}
 
@@ -671,7 +682,7 @@ class DiffWindow:
             if (visual.old && visual.curr) {{ btnToggleDiff.classList.remove('hidden'); btnToggleOverlay.classList.remove('hidden'); btnToggleSwipe.classList.remove('hidden'); }} 
             else {{ btnToggleDiff.classList.add('hidden'); btnToggleOverlay.classList.add('hidden'); btnToggleSwipe.classList.add('hidden'); }}
             
-            const isPdf = (visual.curr && visual.curr.toLowerCase().includes('.pdf')) || (visual.old && visual.old.toLowerCase().includes('.pdf'));
+            const isPdf = (visual.curr && visual.curr.startsWith('data:application/pdf')) || (visual.old && visual.old.startsWith('data:application/pdf'));
 
             if (isSch && !isPdf) {{
                 newImgEl.style.backgroundColor = '#ffffff'; oldImgEl.style.backgroundColor = '#ffffff';
