@@ -9,6 +9,15 @@ from .diff_window import DiffWindow
 # Fix for Windows: prevents the plugin from popping up CMD windows or hanging
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
+def is_git_installed():
+    """Checks if git is available on the system PATH."""
+    try:
+        git_cmd = "git.exe" if os.name == "nt" else "git"
+        subprocess.run([git_cmd, "--version"], capture_output=True, check=True, creationflags=CREATE_NO_WINDOW)
+        return True
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False
+
 class CommitDialog(wx.Dialog):
     def __init__(self, parent):
         super().__init__(parent, title="Commit Changes", size=(400, 280))
@@ -44,7 +53,7 @@ class CommitDialog(wx.Dialog):
 
 class CommandCenterDialog(wx.Dialog):
     def __init__(self, parent, project_dir):
-        super().__init__(parent, title="GitHub Command Center", size=(500, 720))
+        super().__init__(parent, title="GitHub Command Center", size=(500, 780))
         self.project_dir = project_dir
         self.git_cmd = "git.exe" if os.name == "nt" else "git"
         
@@ -64,6 +73,18 @@ class CommandCenterDialog(wx.Dialog):
 
         self.status_lbl = wx.StaticText(panel, label="Checking status...\n")
         main_vbox.Add(self.status_lbl, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+        
+        # --- Setup Section (Only show if no .git folder) ---
+        if not os.path.isdir(os.path.join(self.project_dir, ".git")):
+            setup_box = wx.StaticBox(panel, label="New Project Setup")
+            setup_sizer = wx.StaticBoxSizer(setup_box, wx.VERTICAL)
+            
+            btn_setup = wx.Button(panel, label="Initialize & Link to GitHub")
+            btn_setup.SetBackgroundColour(wx.Colour(200, 255, 200)) # Highlight in light green
+            btn_setup.Bind(wx.EVT_BUTTON, self.on_setup_repo)
+            
+            setup_sizer.Add(btn_setup, flag=wx.EXPAND | wx.ALL, border=5)
+            main_vbox.Add(setup_sizer, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
         
         # --- Compare Target Selector ---
         target_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -167,6 +188,82 @@ class CommandCenterDialog(wx.Dialog):
             self.status_lbl.SetLabel(status_text)
         except:
             self.status_lbl.SetLabel("Status: Git Error.")
+
+    def create_default_gitignore(self):
+        """Creates a default .gitignore for KiCad projects to prevent backup commits."""
+        gitignore_path = os.path.join(self.project_dir, ".gitignore")
+        if not os.path.exists(gitignore_path):
+            content = (
+                "# KiCad backups and autosaves\n"
+                "*.bak\n"
+                "*.kicad_pcb-bak\n"
+                "*.kicad_sch-bak\n"
+                "*.kicad_pro-bak\n"
+                "*-save.pro\n"
+                "*-save.kicad_pcb\n"
+                "*-save.kicad_sch\n"
+                "*_autosave-*\n"
+                "_autosave-*\n"
+                "\n"
+                "# KiCad caches\n"
+                "fp-info-cache\n"
+                "\n"
+                "# Generated files/folders\n"
+                "*.bck\n"
+                "*.kicad_pcb-shl\n"
+                "python_environment/\n"
+            )
+            with open(gitignore_path, "w") as f:
+                f.write(content)
+
+    def on_setup_repo(self, event):
+        """Initializes a repo and sets the remote URL."""
+        dlg = wx.TextEntryDialog(self, 
+            "Paste your GitHub Repository URL (e.g., https://github.com/user/repo.git):", 
+            "Link to GitHub")
+        
+        if dlg.ShowModal() == wx.ID_OK:
+            url = dlg.GetValue().strip()
+            if not url: 
+                dlg.Destroy()
+                return
+
+            wx.BeginBusyCursor()
+            try:
+                # 1. Initialize if needed
+                if not os.path.isdir(os.path.join(self.project_dir, ".git")):
+                    subprocess.run([self.git_cmd, "-C", self.project_dir, "init"], check=True, creationflags=CREATE_NO_WINDOW)
+                
+                # 2. Add standard ignore rules
+                self.create_default_gitignore()
+                
+                # 3. Add or Update Remote
+                res_rem = subprocess.run([self.git_cmd, "-C", self.project_dir, "remote", "add", "origin", url], 
+                                         capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
+                
+                # If remote 'origin' already exists, update it instead
+                if res_rem.returncode != 0:
+                    subprocess.run([self.git_cmd, "-C", self.project_dir, "remote", "set-url", "origin", url], creationflags=CREATE_NO_WINDOW)
+
+                # 4. Success handling
+                wx.MessageBox("Project linked to GitHub successfully!\n\nA default .gitignore was also created to ignore backup files.", "Success")
+                self.update_git_status()
+                
+                # Refresh targets
+                current_sel = self.cb_targets.GetStringSelection()
+                new_targets = self.engine.get_git_targets()
+                if new_targets:
+                    self.cb_targets.SetItems(new_targets)
+                    if current_sel in new_targets:
+                        self.cb_targets.SetStringSelection(current_sel)
+                    else:
+                        self.cb_targets.SetSelection(0)
+                        
+            except Exception as e:
+                wx.MessageBox(f"Failed to setup repository: {e}", "Error", wx.ICON_ERROR)
+            finally:
+                if wx.IsBusy(): wx.EndBusyCursor()
+        dlg.Destroy()
 
     def on_switch_branch(self, event):
         if not os.path.isdir(os.path.join(self.project_dir, ".git")):
@@ -315,6 +412,7 @@ class CommandCenterDialog(wx.Dialog):
             try:
                 if not os.path.isdir(os.path.join(self.project_dir, ".git")):
                     subprocess.run([self.git_cmd, "-C", self.project_dir, "init"], check=True, creationflags=CREATE_NO_WINDOW)
+                    self.create_default_gitignore() # Ensure gitignore exists if it initializes here
                 
                 if branch:
                     if re.search(r'\s|~|\^|:|\?|\*|\[|\\|\.\.|@\{|^/|/$|\.$', branch):
@@ -406,10 +504,22 @@ class GithubActionPlugin(pcbnew.ActionPlugin):
         self.icon_file_name = os.path.join(os.path.dirname(__file__), 'icon.png')
 
     def Run(self):
+        # Prevent the tool from opening if Git isn't installed
+        if not is_git_installed():
+            wx.MessageBox(
+                "Git is not installed or not found in your system's PATH.\n\n"
+                "Please install Git from https://git-scm.com/downloads, "
+                "restart KiCad, and try again.", 
+                "Git Dependency Missing", 
+                wx.ICON_ERROR
+            )
+            return
+
         board = pcbnew.GetBoard()
         path = board.GetFileName()
         if not path:
             wx.MessageBox("Save the board first.")
             return
+            
         dlg = CommandCenterDialog(None, os.path.dirname(path))
         dlg.ShowModal()
