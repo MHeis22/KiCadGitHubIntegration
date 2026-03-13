@@ -117,7 +117,40 @@ class DiffEngine:
             return result
         except Exception as e:
             return [f"Error extracting TODOs: {e}"]
-        
+
+    def _get_chain_area(self, chain):
+        """Helper function to calculate area of a polygon loop using the Shoelace formula."""
+        try:
+            import pcbnew
+            pts = []
+            for k in range(chain.GetPointCount()):
+                # Handle KiCad 6/7/8 VECTOR2I API differences
+                p = chain.CPoint(k) if hasattr(chain, 'CPoint') else chain.Point(k)
+                x = getattr(p, 'x', p[0] if hasattr(p, '__getitem__') else 0)
+                y = getattr(p, 'y', p[1] if hasattr(p, '__getitem__') else 0)
+                
+                # Convert internal units to mm safely
+                if hasattr(pcbnew, 'ToMM'):
+                    x_mm = pcbnew.ToMM(x)
+                    y_mm = pcbnew.ToMM(y)
+                else:
+                    x_mm = x / 1000000.0
+                    y_mm = y / 1000000.0
+                pts.append((x_mm, y_mm))
+            
+            if len(pts) < 3: 
+                return 0.0
+            
+            area = 0.0
+            j = len(pts) - 1
+            for i in range(len(pts)):
+                area += (pts[j][0] + pts[i][0]) * (pts[j][1] - pts[i][1])
+                j = i
+            return abs(area) / 2.0
+        except Exception as e:
+            print(f"Chain Area Error: {e}")
+            return 0.0
+
     def _get_pcb_dimensions(self, file_path):
         """Uses pcbnew to accurately calculate the board's physical dimensions based on Edge.Cuts."""
         if not file_path or not os.path.exists(file_path):
@@ -156,10 +189,64 @@ class DiffEngine:
             if w_mm <= 0.1 or h_mm <= 0.1:
                 return None
                 
+            # --- Calculate True Polygon Area ---
+            true_area_mm2 = 0.0
+            
+            try:
+                # Try KiCad 8 native area extraction first
+                if hasattr(board, 'GetBoardArea'):
+                    true_area_mm2 = board.GetBoardArea() / 1000000000000.0
+            except:
+                pass
+                
+            if true_area_mm2 <= 0.1:
+                try:
+                    poly_set = None
+                    try:
+                        # Method A: Try passing a SHAPE_POLY_SET instance (KiCad 6/7/8 SWIG standard)
+                        ps = pcbnew.SHAPE_POLY_SET()
+                        res = board.GetBoardPolygonOutlines(ps)
+                        
+                        if hasattr(res, 'OutlineCount') and not isinstance(res, bool):
+                            poly_set = res
+                        elif isinstance(res, tuple):
+                            for item in res:
+                                if hasattr(item, 'OutlineCount'):
+                                    poly_set = item
+                                    break
+                        if poly_set is None:
+                            poly_set = ps
+                    except TypeError:
+                        # Method B: SWIG treated the output parameter as a return value
+                        res = board.GetBoardPolygonOutlines()
+                        if hasattr(res, 'OutlineCount') and not isinstance(res, bool):
+                            poly_set = res
+                        elif isinstance(res, tuple):
+                            for item in res:
+                                if hasattr(item, 'OutlineCount'):
+                                    poly_set = item
+                                    break
+
+                    if poly_set and hasattr(poly_set, 'OutlineCount'):
+                        for i in range(poly_set.OutlineCount()):
+                            outline = poly_set.Outline(i)
+                            true_area_mm2 += self._get_chain_area(outline)
+                            
+                            # Subtract cutouts/holes from the main area
+                            for j in range(poly_set.HoleCount(i)):
+                                hole = poly_set.Hole(i, j)
+                                true_area_mm2 -= self._get_chain_area(hole)
+                except Exception as e:
+                    print(f"Polygon Area Extraction Error: {e}")
+                
+            # Fallback to W x H if polygon extraction fails entirely (e.g. malformed outlines)
+            if true_area_mm2 <= 0.1:
+                true_area_mm2 = w_mm * h_mm
+
             return {
                 "w": round(w_mm, 2), 
                 "h": round(h_mm, 2), 
-                "area": round(w_mm * h_mm, 2)
+                "area": round(true_area_mm2, 2)
             }
         except Exception as e:
             print(f"Dimension Extraction Error: {e}")
@@ -448,7 +535,6 @@ class DiffEngine:
                         old_comp = self._get_pcb_structure(old_board_tmp)
                         curr_comp = self._get_pcb_structure(file_path)
                         pcb_logic_diff = self._compare_logic_data(old_comp, curr_comp)
-                        # FIX: Added the extraction of the old board's dimensions
                         dims_data["old"] = self._get_pcb_dimensions(old_board_tmp)
                     else:
                         old_comp = self._get_sch_structure(old_board_tmp)
