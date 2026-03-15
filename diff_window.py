@@ -119,14 +119,16 @@ class DiffWindow:
 
         /* --- PCB Overlay Mode --- */
         .overlay-active {{ background: var(--pcb-bg) !important; }}
-        .overlay-active .board-viewer {{ background: transparent !important; }}
+        /* FIX 1: Add transition: none !important to prevent the fading background from turning into a red/green flash */
+        .overlay-active .board-viewer {{ background: transparent !important; transition: none !important; }}
         
         body:not(.light-theme) .overlay-blend-mode {{ mix-blend-mode: screen; opacity: 1.0; z-index: 10; background: transparent; }}
         body.light-theme .overlay-blend-mode {{ mix-blend-mode: multiply; opacity: 1.0; z-index: 10; background: transparent; }}
         
-        /* Swapped colors based on feedback */
-        .diff-old-tint {{ filter: brightness(0) saturate(100%) invert(48%) sepia(79%) saturate(2476%) hue-rotate(86deg) brightness(118%) contrast(119%) !important; mix-blend-mode: normal; }}
-        .diff-new-tint {{ filter: brightness(0) saturate(100%) invert(27%) sepia(51%) saturate(2878%) hue-rotate(346deg) brightness(104%) contrast(97%) !important; mix-blend-mode: normal; }}
+        /* FIX 2: Replaced brightness(0) with grayscale(100%) to preserve luminance. 
+           This keeps drill holes distinct from copper pours so they don't disappear. */
+        .diff-old-tint {{ filter: grayscale(100%) sepia(100%) saturate(500%) hue-rotate(86deg) brightness(1.2) contrast(1.2) !important; mix-blend-mode: normal; }}
+        .diff-new-tint {{ filter: grayscale(100%) sepia(100%) saturate(500%) hue-rotate(346deg) brightness(1.2) contrast(1.2) !important; mix-blend-mode: normal; }}
 
         body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg-main); color: var(--text-main); margin: 0; display: flex; height: 100vh; overflow: hidden; transition: background 0.3s, color 0.3s; overscroll-behavior: none; }}
         
