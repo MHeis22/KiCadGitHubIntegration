@@ -217,9 +217,8 @@ class CommandCenterDialog(wx.Dialog):
         box_local = wx.StaticBox(self.scroll_panel, label="Local Workspace")
         sizer_local = wx.StaticBoxSizer(box_local, wx.VERTICAL)
         
-        btn_commit = wx.Button(self.scroll_panel, label="Save Snapshot (Quick Commit)", size=(-1, 40))
-        btn_commit.SetBackgroundColour(wx.Colour(220, 255, 220)) # Light Green (Safe)
-        btn_commit.Bind(wx.EVT_BUTTON, self.on_commit)
+        self.btn_commit = wx.Button(self.scroll_panel, label="Save Snapshot (Quick Commit)", size=(-1, 40))
+        self.btn_commit.Bind(wx.EVT_BUTTON, self.on_commit)
         
         btn_switch = wx.Button(self.scroll_panel, label="Switch Working Branch", size=(-1, 40))
         btn_switch.Bind(wx.EVT_BUTTON, self.on_switch_branch)
@@ -232,7 +231,7 @@ class CommandCenterDialog(wx.Dialog):
         stash_sizer.Add(btn_stash, proportion=1, flag=wx.RIGHT, border=2)
         stash_sizer.Add(btn_pop, proportion=1, flag=wx.LEFT, border=2)
 
-        sizer_local.Add(btn_commit, flag=wx.EXPAND | wx.ALL, border=5)
+        sizer_local.Add(self.btn_commit, flag=wx.EXPAND | wx.ALL, border=5)
         sizer_local.Add(btn_switch, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=5)
         sizer_local.Add(stash_sizer, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=5)
         self.scroll_vbox.Add(sizer_local, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
@@ -243,9 +242,8 @@ class CommandCenterDialog(wx.Dialog):
         box_remote = wx.StaticBox(self.scroll_panel, label="Remote & Sync")
         sizer_remote = wx.StaticBoxSizer(box_remote, wx.VERTICAL)
 
-        btn_push = wx.Button(self.scroll_panel, label="Push Changes to GitHub", size=(-1, 40))
-        btn_push.SetBackgroundColour(wx.Colour(255, 240, 200)) # Light Orange (Network)
-        btn_push.Bind(wx.EVT_BUTTON, self.on_push)
+        self.btn_push = wx.Button(self.scroll_panel, label="Push Changes to GitHub", size=(-1, 40))
+        self.btn_push.Bind(wx.EVT_BUTTON, self.on_push)
         
         btn_github = wx.Button(self.scroll_panel, label="Open GitHub Page", size=(-1, 40))
         btn_github.Bind(wx.EVT_BUTTON, self.on_open_github)
@@ -254,7 +252,7 @@ class CommandCenterDialog(wx.Dialog):
         btn_sync.SetBackgroundColour(wx.Colour(255, 200, 200)) # Light Red (Destructive local)
         btn_sync.Bind(wx.EVT_BUTTON, self.on_force_sync)
 
-        sizer_remote.Add(btn_push, flag=wx.EXPAND | wx.ALL, border=5)
+        sizer_remote.Add(self.btn_push, flag=wx.EXPAND | wx.ALL, border=5)
         sizer_remote.Add(btn_github, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=5)
         sizer_remote.Add(btn_sync, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=5)
         self.scroll_vbox.Add(sizer_remote, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
@@ -374,6 +372,9 @@ class CommandCenterDialog(wx.Dialog):
     def update_git_status(self):
         if not os.path.isdir(os.path.join(self.project_dir, ".git")):
             self.status_lbl.SetLabel("Status: Not a Git repository.")
+            if hasattr(self, 'btn_commit'):
+                self.btn_commit.SetBackgroundColour(wx.Colour(240, 240, 240))
+                self.btn_push.SetBackgroundColour(wx.Colour(240, 240, 240))
             return
         try:
             res_curr = subprocess.run([self.git_cmd, "-C", self.project_dir, "branch", "--show-current"], 
@@ -393,8 +394,46 @@ class CommandCenterDialog(wx.Dialog):
                 status_text += f"Status: Workspace identical to {actual_target}."
                 
             self.status_lbl.SetLabel(status_text)
-        except:
-            self.status_lbl.SetLabel("Status: Git Error.")
+
+            # --- Dynamic Button Highlighting ---
+            if hasattr(self, 'btn_commit'):
+                # 1. Commit Button Logic: check active workspace against HEAD
+                head_status = self.engine.get_git_status(target="HEAD")
+                uncommitted_changes = len(head_status) > 0
+                
+                commit_font = self.btn_commit.GetFont()
+                if uncommitted_changes:
+                    self.btn_commit.SetBackgroundColour(wx.Colour(150, 255, 150)) # Bright Green
+                    commit_font.SetWeight(wx.FONTWEIGHT_BOLD)
+                else:
+                    self.btn_commit.SetBackgroundColour(wx.Colour(230, 245, 230)) # Muted Green
+                    commit_font.SetWeight(wx.FONTWEIGHT_NORMAL)
+                self.btn_commit.SetFont(commit_font)
+
+                # 2. Push Button Logic: check if local is ahead of remote
+                push_font = self.btn_push.GetFont()
+                is_ahead = False
+                
+                # 'git status -sb' shows if we are ahead of origin (e.g. "## master...origin/master [ahead 1]")
+                res_ahead = subprocess.run([self.git_cmd, "-C", self.project_dir, "status", "-sb"],
+                                           capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
+                if "[ahead" in res_ahead.stdout:
+                    is_ahead = True
+                    
+                if is_ahead:
+                    self.btn_push.SetBackgroundColour(wx.Colour(255, 180, 100)) # Bright Orange
+                    push_font.SetWeight(wx.FONTWEIGHT_BOLD)
+                else:
+                    self.btn_push.SetBackgroundColour(wx.Colour(255, 240, 220)) # Muted Orange
+                    push_font.SetWeight(wx.FONTWEIGHT_NORMAL)
+                self.btn_push.SetFont(push_font)
+                
+                # Force UI repaint
+                self.btn_commit.Refresh()
+                self.btn_push.Refresh()
+                
+        except Exception as e:
+            self.status_lbl.SetLabel(f"Status: Git Error. {e}")
 
     def create_default_gitignore(self):
         gitignore_path = os.path.join(self.project_dir, ".gitignore")
@@ -709,28 +748,27 @@ class CommandCenterDialog(wx.Dialog):
                                     capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
             branch = res_br.stdout.strip()
             
-            # --- SILENT PULL LOGIC ---
+            # --- SILENT PULL LOGIC (FULLY AUTOMATIC) ---
             if self.settings.get('silent_pull', False):
-                # Fetch remote updates without merging yet
+                # Fetch remote updates
                 subprocess.run([self.git_cmd, "-C", self.project_dir, "fetch", "origin", branch], creationflags=CREATE_NO_WINDOW)
                 
-                # Check what files are ahead on the remote server
                 res_diff = subprocess.run([self.git_cmd, "-C", self.project_dir, "diff", f"HEAD..origin/{branch}", "--name-only"],
                                           capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
                 
                 changed_files = [f.strip() for f in res_diff.stdout.split('\n') if f.strip()]
                 
                 if changed_files:
-                    # Check if any dangerous KiCad files are in the remote changes
                     dangerous_exts = ('.kicad_pcb', '.kicad_sch', '.kicad_pro', '.kicad_prl')
                     has_dangerous = any(f.endswith(dangerous_exts) for f in changed_files)
                     
                     if not has_dangerous:
-                        # It's safe! Pull the text files using rebase (to cleanly stack local commits on top)
-                        subprocess.run([self.git_cmd, "-C", self.project_dir, "pull", "--rebase", "origin", branch], creationflags=CREATE_NO_WINDOW)
+                        # "-X theirs" ensures your local README.md/BOM always wins if a conflict occurs
+                        subprocess.run([self.git_cmd, "-C", self.project_dir, "pull", "--rebase", "-X", "theirs", "origin", branch], 
+                                       creationflags=CREATE_NO_WINDOW)
                     else:
-                        print("Silent pull aborted: Remote KiCad changes detected. Letting push fail normally.")
-            # -------------------------
+                        print("Silent pull aborted: Remote KiCad changes detected.")
+            # --------------------------------------------
 
             res = subprocess.run([self.git_cmd, "-C", self.project_dir, "push", "-u", "origin", branch], 
                                  capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
