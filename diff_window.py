@@ -6,7 +6,7 @@ import json
 import base64
 
 class DiffWindow:
-    def __init__(self, diffs, summary_text, target_name="HEAD", kicad_version="Unknown KiCad Version"):
+    def __init__(self, diffs, summary_text, target_name="HEAD", kicad_version="Unknown KiCad Version", colorblind=False):
         """
         diffs expects a list of dicts: 
         [{'name': '...', 'status': '...', 'visuals': {...}, 'bom_data': {'curr':{}, 'old':{}}}]
@@ -15,6 +15,7 @@ class DiffWindow:
         self.summary_text = summary_text.replace('\n', '<br>')
         self.target_name = target_name
         self.kicad_version = kicad_version
+        self.colorblind = colorblind
 
     def _get_data_uri(self, file_path):
         """Reads a file and returns a Base64 encoded Data URI for embedding."""
@@ -38,10 +39,8 @@ class DiffWindow:
         for d in self.diffs:
             processed_visuals = {}
             for layer, paths in d.get('visuals', {}).items():
-                # Convert the local files directly into Base64 strings
                 curr_uri = self._get_data_uri(paths.get('curr'))
                 old_uri = self._get_data_uri(paths.get('old'))
-                
                 processed_visuals[layer] = {"curr": curr_uri, "old": old_uri}
 
             js_diffs.append({
@@ -57,6 +56,7 @@ class DiffWindow:
             })
 
         diff_json = json.dumps(js_diffs)
+        colorblind_class = "colorblind-theme" if self.colorblind else ""
 
         html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -97,36 +97,75 @@ class DiffWindow:
             --diff-mod: #fff5e6;
         }}
 
-        /* --- Version Watermark --- */
-        #version-watermark {{
-            position: fixed;
-            bottom: 15px;
-            right: 20px;
-            font-size: 15px;
-            color: var(--text-muted);
-            opacity: 0.6;
-            z-index: 1000;
-            pointer-events: none;
-            font-family: 'Consolas', 'Courier New', monospace;
+        /* --- Colorblind Theme Overrides --- */
+        body.colorblind-theme {{
+            --diff-add: rgba(33, 150, 243, 0.15); /* Blue */
+            --diff-del: rgba(255, 152, 0, 0.15); /* Orange/Yellow */
+            --diff-mod: rgba(156, 39, 176, 0.15);
         }}
+        body.colorblind-theme.light-theme {{
+            --diff-add: #e3f2fd;
+            --diff-del: #fff3e0;
+            --diff-mod: #f3e5f5;
+        }}
+        body.colorblind-theme .diff-add {{ color: #2196F3; }}
+        body.colorblind-theme .diff-del {{ color: #FF9800; }}
+        body.colorblind-theme .diff-mod {{ color: #9C27B0; }}
+        
+        body.colorblind-theme .color-new {{ color: #2196F3 !important; }}
+        body.colorblind-theme .color-old {{ color: #FF9800 !important; }}
+        body.colorblind-theme .color-err {{ color: #FF9800 !important; }}
+        
+        body.colorblind-theme .health-err {{ color: #FF9800; }}
+        body.colorblind-theme .health-warn {{ color: #9C27B0; }}
+        
+        body.colorblind-theme .todo-new {{ border-left-color: #2196F3 !important; }}
+        body.colorblind-theme .todo-old {{ border-left-color: #FF9800 !important; }}
+        body.colorblind-theme .todo-err {{ border-left-color: #FF9800 !important; }}
 
-        /* --- Schematic Overlay Mode --- */
+        body.colorblind-theme .bom-table del {{ color: #FF9800; }}
+        body.colorblind-theme .bom-table b {{ color: #2196F3; }}
+
+        body.colorblind-theme .label-old {{ background: rgba(255, 152, 0, 0.8) !important; }}
+        body.colorblind-theme .label-new {{ background: rgba(33, 150, 243, 0.8) !important; }}
+
+        /* Tints: Old is Orange, New is Blue */
+        body.colorblind-theme .diff-old-tint {{ filter: grayscale(100%) sepia(100%) saturate(500%) hue-rotate(10deg) brightness(1.2) contrast(1.2) !important; }}
+        body.colorblind-theme .diff-new-tint {{ filter: grayscale(100%) sepia(100%) saturate(500%) hue-rotate(190deg) brightness(1.2) contrast(1.2) !important; }}
+        body.colorblind-theme .sch-diff-old {{ filter: invert(1) sepia(100%) saturate(500%) hue-rotate(-20deg) brightness(0.9) !important; }}
+        body.colorblind-theme .sch-diff-new {{ filter: invert(1) sepia(100%) saturate(500%) hue-rotate(160deg) brightness(0.9) !important; }}
+
+        /* --- Semantic Color Classes --- */
+        .color-new {{ color: #4CAF50; }}
+        .color-old {{ color: #FF9800; }}
+        .color-err {{ color: #F44336; }}
+        .health-err {{ color: #F44336; }}
+        .health-warn {{ color: #FF9800; }}
+        .health-unc {{ color: #E91E63; }}
+        .todo-new {{ border-left-color: #4CAF50; }}
+        .todo-old {{ border-left-color: #FF9800; }}
+        .todo-err {{ border-left-color: #F44336; }}
+
+        /* --- Swipe Labels --- */
+        #swipe-labels {{ position: absolute; top: 15px; left: 0; width: 100%; pointer-events: none; z-index: 1000; display: flex; justify-content: space-between; padding: 0 30px; box-sizing: border-box; }}
+        .swipe-label {{ color: white; padding: 6px 16px; border-radius: 4px; font-weight: bold; font-size: 14px; text-shadow: 0px 1px 2px rgba(0,0,0,0.8); border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(2px); }}
+        .label-old {{ background: rgba(244, 67, 54, 0.8); }}
+        .label-new {{ background: rgba(76, 175, 80, 0.8); }}
+
+        #version-watermark {{ position: fixed; bottom: 15px; right: 20px; font-size: 15px; color: var(--text-muted); opacity: 0.6; z-index: 1000; pointer-events: none; font-family: 'Consolas', 'Courier New', monospace; }}
+
         .sch-overlay-mode {{ opacity: 1.0; mix-blend-mode: screen; z-index: 10; background: transparent; }}
         .sch-diff-old {{ filter: invert(1) sepia(100%) saturate(500%) hue-rotate(-50deg) brightness(0.9) !important; mix-blend-mode: normal; }}
         .sch-diff-new {{ filter: invert(1) sepia(100%) saturate(500%) hue-rotate(80deg) brightness(0.9) !important; mix-blend-mode: normal; }}
         .sch-diff-container {{ background: #111 !important; }}
         .sch-diff-container .board-viewer {{ background: transparent !important; }}
 
-        /* --- PCB Overlay Mode --- */
         .overlay-active {{ background: var(--pcb-bg) !important; }}
-        /* FIX 1: Add transition: none !important to prevent the fading background from turning into a red/green flash */
         .overlay-active .board-viewer {{ background: transparent !important; transition: none !important; }}
         
         body:not(.light-theme) .overlay-blend-mode {{ mix-blend-mode: screen; opacity: 1.0; z-index: 10; background: transparent; }}
         body.light-theme .overlay-blend-mode {{ mix-blend-mode: multiply; opacity: 1.0; z-index: 10; background: transparent; }}
         
-        /* FIX 2: Replaced brightness(0) with grayscale(100%) to preserve luminance. 
-           This keeps drill holes distinct from copper pours so they don't disappear. */
         .diff-old-tint {{ filter: grayscale(100%) sepia(100%) saturate(500%) hue-rotate(86deg) brightness(1.2) contrast(1.2) !important; mix-blend-mode: normal; }}
         .diff-new-tint {{ filter: grayscale(100%) sepia(100%) saturate(500%) hue-rotate(346deg) brightness(1.2) contrast(1.2) !important; mix-blend-mode: normal; }}
 
@@ -186,13 +225,12 @@ class DiffWindow:
         #text-diff-container, #todos-container, #health-container, #bom-container {{ flex: 1; padding: 20px; overflow-y: auto; background: var(--diff-bg); font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; white-space: pre-wrap; line-height: 1.5; transition: 0.3s; }}
         .diff-line {{ padding: 0 5px; border-radius: 2px; }}
         .diff-header {{ color: var(--text-muted); font-weight: bold; margin-top: 10px; }}
-        .diff-add {{ color: #4CAF50; background-color: var(--diff-add); }}
-        .diff-del {{ color: #F44336; background-color: var(--diff-del); }}
+        .diff-add {{ background-color: var(--diff-add); }}
+        .diff-del {{ background-color: var(--diff-del); }}
         .diff-mod {{ color: #FF9800; background-color: var(--diff-mod); }}
         .diff-chunk {{ color: #00bcd4; font-weight: bold; }}
         .diff-normal {{ color: var(--text-main); }}
 
-        /* --- Modern Grouped BOM --- */
         #bom-container {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; white-space: normal; padding: 20px; }}
         .bom-table-wrapper {{ height: 100%; overflow: auto; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-sidebar); }}
         .bom-table {{ width: 100%; border-collapse: collapse; text-align: left; }}
@@ -202,52 +240,39 @@ class DiffWindow:
         .bom-row-del td {{ background-color: var(--diff-del); }}
         .bom-row-mod td {{ background-color: var(--diff-mod); }}
         .bom-table tr:hover td {{ background-color: var(--bg-hover); }}
-        .bom-table del {{ opacity: 0.6; color: #F44336; text-decoration: line-through; margin-right: 6px; }}
-        .bom-table b {{ color: #4CAF50; font-weight: 600; }}
+        .bom-table del {{ opacity: 0.6; text-decoration: line-through; margin-right: 6px; }}
+        .bom-table b {{ font-weight: 600; }}
 
-        /* Reusable Flex Columns (TODOs and Health) */
         .todos-wrapper {{ display: flex; gap: 20px; height: 100%; }}
         .todos-column {{ flex: 1; display: flex; flex-direction: column; background: var(--bg-sidebar); border-radius: 6px; border: 1px solid var(--border-color); transition: 0.3s; }}
         .todos-header {{ padding: 12px 15px; background: var(--bg-header); border-bottom: 1px solid var(--border-color); font-weight: bold; font-size: 14px; border-radius: 6px 6px 0 0; transition: 0.3s; }}
         .todo-list {{ list-style: none; padding: 15px; margin: 0; overflow-y: auto; flex: 1; }}
         .todo-item {{ padding: 12px 15px; margin-bottom: 10px; border-radius: 4px; background: var(--bg-header); border-left: 4px solid var(--text-muted); font-family: 'Segoe UI', sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: 0.3s; word-wrap: break-word; white-space: normal; }}
-        .todo-item.todo-new {{ border-left-color: #4CAF50; }}
-        .todo-item.todo-old {{ border-left-color: #FF9800; }}
         .todo-empty {{ color: var(--text-muted); font-style: italic; padding: 10px 0; }}
-
         .no-data-msg {{ color: var(--text-muted); font-style: italic; font-size: 1.2em; }}
 
-        /* --- Mobile Responsiveness --- */
         @media (max-width: 768px) {{
-            /* Allow vertical scrolling on mobile and remove fixed height */
             body {{ display: block; height: auto; overflow-y: auto; }}
             #main-content {{ display: block; height: auto; overflow: visible; }}
-            
             #sidebar {{ width: 100%; height: 140px; flex-shrink: 0; border-right: none; border-bottom: 1px solid var(--border-color); }}
             #topbar {{ flex-direction: column; align-items: flex-start; gap: 10px; padding: 10px; flex-shrink: 0; }}
-            
             .summary-box {{ max-width: 100%; width: 100%; max-height: max-content; box-sizing: border-box; }}
             .controls-wrapper {{ width: 100%; align-items: flex-start; gap: 8px; }}
             .selection-row {{ flex-wrap: wrap; gap: 8px; width: 100%; }}
-            
             .view-toggle {{ flex-wrap: wrap; gap: 4px; width: 100%; }}
             .view-btn {{ flex: 1 1 auto; text-align: center; padding: 8px; }}
-            
             .controls {{ flex-wrap: wrap; justify-content: flex-start; width: 100%; gap: 6px; }}
             .status-indicator {{ text-align: left; min-width: auto; width: 100%; margin-bottom: 4px; font-weight: bold; }}
             button {{ padding: 10px; flex: 1 1 auto; }}
-            
             .todos-wrapper {{ flex-direction: column; height: auto; }}
             .todos-column {{ min-height: 250px; }}
-            
-            /* Give the viewer container a strong guaranteed height on mobile */
             #viewer-container {{ padding: 10px; height: 75vh; min-height: 450px; flex: none; }}
             #text-diff-container, #todos-container, #health-container, #bom-container {{ min-height: 60vh; flex: none; }}
             .layer-selector {{ flex: 1 1 auto; justify-content: space-between; }}
         }}
     </style>
 </head>
-<body>
+<body class="{colorblind_class}">
 
     <div id="sidebar">
         <div class="sidebar-header">Project Files</div>
@@ -264,6 +289,7 @@ class DiffWindow:
             <div class="controls-wrapper">
                 <div class="selection-row">
                     <button class="btn-secondary" onclick="toggleTheme()" title="Shortcut: T">Toggle Theme</button>
+                    <button class="btn-secondary" onclick="toggleColorblind()" title="Shortcut: C">Colorblind</button>
                     <button class="btn-secondary" onclick="saveReport()">Save Report</button>
                     
                     <label id="silk-toggle-cont" class="checkbox-label hidden">
@@ -301,6 +327,12 @@ class DiffWindow:
             <p id="no-selection" class="no-data-msg">No file selected.</p>
             <p id="no-old-msg" class="no-data-msg hidden">No data found in <span class="target-name-val"></span> for this layer.</p>
             
+            <!-- Floating Swipe Labels -->
+            <div id="swipe-labels" class="hidden">
+                <div class="swipe-label label-new">New (Local)</div>
+                <div class="swipe-label label-old">Old (Target)</div>
+            </div>
+
             <div id="viewer-wrapper-old" class="viewer-absolute hidden">
                 <div id="img-wrapper-old" class="img-transform-wrapper hidden">
                     <img id="old-img" class="board-viewer hidden" src="" />
@@ -359,6 +391,7 @@ class DiffWindow:
         const oldSilkPdfEl = document.getElementById('old-silk-pdf');
 
         const sliderHandle = document.getElementById('swipe-slider-handle');
+        const swipeLabels = document.getElementById('swipe-labels');
         const statusTextEl = document.getElementById('status-text');
         const noSelectionEl = document.getElementById('no-selection');
         const noOldMsgEl = document.getElementById('no-old-msg');
@@ -383,6 +416,7 @@ class DiffWindow:
         document.querySelectorAll('.target-name-val').forEach(el => el.innerText = targetName);
 
         function toggleTheme() {{ document.body.classList.toggle('light-theme'); }}
+        function toggleColorblind() {{ document.body.classList.toggle('colorblind-theme'); }}
 
         function saveReport() {{
             const docHtml = '<!DOCTYPE html>\\n<html lang="en">' + document.documentElement.innerHTML + '</html>';
@@ -400,7 +434,6 @@ class DiffWindow:
         // === ZOOM AND PAN LOGIC (MOUSE & TOUCH) ===
         let scale = 1, panning = false, pointX = 0, pointY = 0, start = {{ x: 0, y: 0 }};
         let draggingSlider = false;
-        
         let initialPinchDistance = null;
         let initialScale = 1;
         let initialPointX = 0;
@@ -418,12 +451,7 @@ class DiffWindow:
             setTransform();
         }}
 
-        // Mouse Events
-        sliderHandle.addEventListener('mousedown', (e) => {{
-            draggingSlider = true;
-            e.stopPropagation(); e.preventDefault();
-        }});
-        
+        sliderHandle.addEventListener('mousedown', (e) => {{ draggingSlider = true; e.stopPropagation(); e.preventDefault(); }});
         window.addEventListener('mouseup', () => {{ draggingSlider = false; panning = false; }});
 
         viewerContainer.onmousedown = function (e) {{
@@ -465,11 +493,7 @@ class DiffWindow:
             setTransform();
         }};
 
-        // Touch Events (Mobile Pinch-to-Zoom & Pan)
-        sliderHandle.addEventListener('touchstart', (e) => {{
-            draggingSlider = true;
-            e.stopPropagation();
-        }}, {{passive: false}});
+        sliderHandle.addEventListener('touchstart', (e) => {{ draggingSlider = true; e.stopPropagation(); }}, {{passive: false}});
 
         viewerContainer.addEventListener('touchstart', function(e) {{
             if (imgWrapperOld.classList.contains('hidden') && imgWrapperNew.classList.contains('hidden')) return;
@@ -485,7 +509,6 @@ class DiffWindow:
                 initialScale = scale;
                 initialPointX = pointX;
                 initialPointY = pointY;
-                
                 const rect = viewerContainer.getBoundingClientRect();
                 pinchCenter = {{
                     x: (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left,
@@ -522,30 +545,21 @@ class DiffWindow:
                 scale = initialScale * zoomFactor;
                 if (scale < 0.1) scale = 0.1;
                 if (scale > 50) scale = 50;
-
-                // Adjust pointX/pointY to zoom around the center point between fingers
                 pointX = pinchCenter.x - (pinchCenter.x - initialPointX) * zoomFactor;
                 pointY = pinchCenter.y - (pinchCenter.y - initialPointY) * zoomFactor;
-
                 setTransform();
             }}
         }}, {{passive: false}});
 
-        viewerContainer.addEventListener('touchend', function(e) {{
-            panning = false;
-            initialPinchDistance = null;
-            draggingSlider = false;
-        }});
+        viewerContainer.addEventListener('touchend', function(e) {{ panning = false; initialPinchDistance = null; draggingSlider = false; }});
 
-
-        // === DATA FORMATTING AND UI ===
         function escapeHtml(unsafe) {{ return unsafe ? unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : ''; }}
 
         function formatHealthItem(text) {{
             let safe = escapeHtml(text);
-            safe = safe.replace(/\[ERROR\]/g, '<strong style="color:#F44336;">[ERROR]</strong>');
-            safe = safe.replace(/\[WARNING\]/g, '<strong style="color:#FF9800;">[WARNING]</strong>');
-            safe = safe.replace(/\[UNCONNECTED\]/g, '<strong style="color:#E91E63;">[UNCONNECTED]</strong>');
+            safe = safe.replace(/\[ERROR\]/g, '<strong class="health-err">[ERROR]</strong>');
+            safe = safe.replace(/\[WARNING\]/g, '<strong class="health-warn">[WARNING]</strong>');
+            safe = safe.replace(/\[UNCONNECTED\]/g, '<strong class="health-unc">[UNCONNECTED]</strong>');
             return safe;
         }}
 
@@ -562,7 +576,6 @@ class DiffWindow:
             }}).join('');
         }}
 
-        // Builds a highly readable grouped BOM showing exact diffs
         function renderGroupedBom(oldBom, currBom) {{
             const getSig = (item) => `${{item.val}}|${{item.fp}}|${{item.mpn}}|${{item.desc}}`;
             
@@ -607,8 +620,7 @@ class DiffWindow:
                     
                     if (c.qty !== o.qty || cRefsStr !== oRefsStr) {{
                         let qtyHtml = c.qty !== o.qty ? `<del>${{o.qty}}</del> <b>${{c.qty}}</b>` : c.qty;
-                        let refHtml = cRefsStr !== oRefsStr ? `<div style="font-size: 0.85em; color: #F44336; text-decoration: line-through;">${{oRefsStr}}</div><div style="color: #4CAF50;">${{cRefsStr}}</div>` : cRefsStr;
-                        
+                        let refHtml = cRefsStr !== oRefsStr ? `<div class="color-err" style="font-size: 0.85em; text-decoration: line-through;">${{oRefsStr}}</div><div class="color-new">${{cRefsStr}}</div>` : cRefsStr;
                         html += `<tr class="bom-row-mod"><td>📝 Changed</td><td>${{qtyHtml}}</td><td>${{refHtml}}</td><td>${{escapeHtml(c.val)}}</td><td>${{escapeHtml(c.fp)}}</td><td>${{escapeHtml(c.mpn)}}</td><td>${{escapeHtml(c.desc)}}</td></tr>`;
                     }} else {{
                         html += `<tr><td>✓ Unchanged</td><td>${{c.qty}}</td><td>${{cRefsStr}}</td><td>${{escapeHtml(c.val)}}</td><td>${{escapeHtml(c.fp)}}</td><td>${{escapeHtml(c.mpn)}}</td><td>${{escapeHtml(c.desc)}}</td></tr>`;
@@ -626,14 +638,14 @@ class DiffWindow:
                 li.className = 'file-item';
                 li.onclick = () => selectFile(index);
                 
-                let color = "var(--text-muted)";
-                if (file.status === "Modified") color = "#F44336";
-                else if (file.status === "New/Untracked") color = "#4CAF50";
-                else if (file.status === "Deleted") color = "#999999";
+                let colorClass = "var(--text-muted)";
+                if (file.status === "Modified") colorClass = "#F44336";
+                else if (file.status === "New/Untracked") colorClass = "#4CAF50";
+                else if (file.status === "Deleted") colorClass = "#999999";
 
                 li.innerHTML = `
                     <div class="file-name">${{escapeHtml(file.name)}}</div>
-                    <div class="file-status" style="color: ${{color}};">${{file.status}}</div>
+                    <div class="file-status" style="color: ${{colorClass}};">${{file.status}}</div>
                 `;
                 fileListEl.appendChild(li);
             }});
@@ -725,7 +737,7 @@ class DiffWindow:
                 if (dims.curr) {{
                     let dimText = `📐 ${{dims.curr.w}} x ${{dims.curr.h}} mm (${{dims.curr.area}} mm²)`;
                     if (dims.old && (dims.old.w !== dims.curr.w || dims.old.h !== dims.curr.h)) {{
-                        dimText = `📐 <span style="text-decoration:line-through; color:#F44336; margin-right:4px;">${{dims.old.w}}x${{dims.old.h}}</span> ➔ <span style="color:#4CAF50; margin-left:4px;">${{dims.curr.w}} x ${{dims.curr.h}} mm</span>`;
+                        dimText = `📐 <span class="color-err" style="text-decoration:line-through; margin-right:4px;">${{dims.old.w}}x${{dims.old.h}}</span> ➔ <span class="color-new" style="margin-left:4px;">${{dims.curr.w}} x ${{dims.curr.h}} mm</span>`;
                     }}
                     dimContainer.innerHTML = dimText;
                 }} else {{
@@ -735,86 +747,67 @@ class DiffWindow:
                 dimContainer.classList.add('hidden');
             }}
 
-            // --- Modern BOM Diff ---
             if (currentTab === 'bom') {{
                 btnToggleDiff.classList.add('hidden'); btnToggleOverlay.classList.add('hidden'); btnToggleSwipe.classList.add('hidden'); resetBtn.classList.add('hidden');
                 bomContainer.classList.remove('hidden');
-                
-                const currBom = file.bomData.curr || {{}};
-                const oldBom = file.bomData.old || {{}};
-                
-                bomContainer.innerHTML = renderGroupedBom(oldBom, currBom);
+                bomContainer.innerHTML = renderGroupedBom(file.bomData.old || {{}}, file.bomData.curr || {{}});
                 statusTextEl.innerHTML = `Showing: <strong>Modern BOM</strong>`;
                 return;
             }}
 
-            // --- Logical Diffs (PCB or SCH Netlist) ---
             if (currentTab === 'netlist' || currentTab === 'pcb-logic') {{
                 btnToggleDiff.classList.add('hidden'); btnToggleOverlay.classList.add('hidden'); btnToggleSwipe.classList.add('hidden'); resetBtn.classList.add('hidden');
                 textDiffContainer.classList.remove('hidden');
-                
-                let diffContent = "";
-                let tabName = "";
-                if (currentTab === 'netlist') {{ diffContent = file.netlistDiff; tabName = "Netlist Text Diff"; }}
-                else if (currentTab === 'pcb-logic') {{ diffContent = file.pcbLogicDiff; tabName = "Net/Component Changes"; }}
-
+                let diffContent = currentTab === 'netlist' ? file.netlistDiff : file.pcbLogicDiff;
+                let tabName = currentTab === 'netlist' ? "Netlist Text Diff" : "Net/Component Changes";
                 textDiffContainer.innerHTML = diffContent ? formatDiff(diffContent) : `<span style="color:var(--text-muted);">No structural changes found.</span>`;
                 statusTextEl.innerHTML = `Showing: <strong>${{tabName}}</strong>`;
                 return;
             }}
             
-            // --- DRC Violations ---
             if (currentTab === 'health') {{
                 btnToggleDiff.classList.add('hidden'); btnToggleOverlay.classList.add('hidden'); btnToggleSwipe.classList.add('hidden'); resetBtn.classList.add('hidden');
                 healthContainer.classList.remove('hidden');
                 
                 const health = file.health || {{new: [], resolved: [], unresolved: []}};
-                
                 let emptyChecksMsg = "";
                 if (health.new.length === 0 && health.resolved.length === 0 && health.unresolved.length === 0) {{
                     emptyChecksMsg = "<div style='padding:15px; background:rgba(255,152,0,0.1); border:1px solid #FF9800; border-radius:4px; margin-bottom:15px;'><strong>Note:</strong> No violations detected, OR the <i>'Run DRC Check'</i> box was not checked before generating this view.</div>";
                 }}
 
                 let html = emptyChecksMsg + '<div class="todos-wrapper">';
-                
-                // Resolved
-                html += '<div class="todos-column"><div class="todos-header" style="color:#4CAF50;">Resolved (Fixed)</div><ul class="todo-list">';
+                html += '<div class="todos-column"><div class="todos-header color-new">Resolved (Fixed)</div><ul class="todo-list">';
                 if (health.resolved.length === 0) html += '<li class="todo-empty">No issues were fixed in this pass.</li>';
                 else health.resolved.forEach(t => html += `<li class="todo-item todo-new">${{formatHealthItem(t)}}</li>`);
                 html += '</ul></div>';
 
-                // Unresolved
-                html += '<div class="todos-column"><div class="todos-header" style="color:#FF9800;">Unresolved (Existing)</div><ul class="todo-list">';
+                html += '<div class="todos-column"><div class="todos-header color-old">Unresolved (Existing)</div><ul class="todo-list">';
                 if (health.unresolved.length === 0) html += '<li class="todo-empty">No persistent issues.</li>';
                 else health.unresolved.forEach(t => html += `<li class="todo-item todo-old">${{formatHealthItem(t)}}</li>`);
                 html += '</ul></div>';
                 
-                // New
-                html += '<div class="todos-column"><div class="todos-header" style="color:#F44336;">New Issues</div><ul class="todo-list">';
+                html += '<div class="todos-column"><div class="todos-header color-err">New Issues</div><ul class="todo-list">';
                 if (health.new.length === 0) html += '<li class="todo-empty">No new issues introduced! 🎉</li>';
-                else health.new.forEach(t => html += `<li class="todo-item" style="border-left-color: #F44336;">${{formatHealthItem(t)}}</li>`);
-                html += '</ul></div>';
+                else health.new.forEach(t => html += `<li class="todo-item todo-err">${{formatHealthItem(t)}}</li>`);
+                html += '</ul></div></div>';
 
-                html += '</div>';
                 healthContainer.innerHTML = html;
                 statusTextEl.innerHTML = `Showing: <strong>DRC Violations</strong>`;
                 return;
             }}
 
-            // --- TODOs ---
             if (currentTab === 'todos') {{
                 btnToggleDiff.classList.add('hidden'); btnToggleOverlay.classList.add('hidden'); btnToggleSwipe.classList.add('hidden'); resetBtn.classList.add('hidden');
                 todosContainer.classList.remove('hidden');
                 
                 const todos = file.todos || {{curr: [], old: []}};
                 let html = '<div class="todos-wrapper">';
-                
-                html += '<div class="todos-column"><div class="todos-header" style="color:#FF9800;">' + targetName + ' TODOs</div><ul class="todo-list">';
+                html += '<div class="todos-column"><div class="todos-header color-old">' + targetName + ' TODOs</div><ul class="todo-list">';
                 if (!todos.old || todos.old.length === 0) html += '<li class="todo-empty">No TODOs found in ' + targetName + '.</li>';
                 else todos.old.forEach(t => html += `<li class="todo-item todo-old">${{escapeHtml(t)}}</li>`);
                 html += '</ul></div>';
 
-                html += '<div class="todos-column"><div class="todos-header" style="color:#4CAF50;">Local Changes TODOs</div><ul class="todo-list">';
+                html += '<div class="todos-column"><div class="todos-header color-new">Local Changes TODOs</div><ul class="todo-list">';
                 if (!todos.curr || todos.curr.length === 0) html += '<li class="todo-empty">No TODOs found in the working tree.</li>';
                 else todos.curr.forEach(t => html += `<li class="todo-item todo-new">${{escapeHtml(t)}}</li>`);
                 html += '</ul></div></div>';
@@ -826,8 +819,6 @@ class DiffWindow:
 
             // --- Visual View ---
             viewerContainer.classList.remove('hidden');
-            
-            // Clear overlay classes
             viewerContainer.classList.remove('overlay-active', 'sch-diff-container');
             wrapperNew.classList.remove('overlay-blend-mode', 'sch-overlay-mode');
             oldImgEl.classList.remove('diff-old-tint', 'sch-diff-old');
@@ -867,10 +858,11 @@ class DiffWindow:
             }}
 
             wrapperOld.classList.add('hidden'); wrapperNew.classList.add('hidden');
-            wrapperNew.style.clipPath = ''; sliderHandle.classList.add('hidden');
+            wrapperNew.style.clipPath = ''; sliderHandle.classList.add('hidden'); swipeLabels.classList.add('hidden');
 
             if (swipeMode && visual.old && visual.curr) {{
-                wrapperOld.classList.remove('hidden'); wrapperNew.classList.remove('hidden'); sliderHandle.classList.remove('hidden');
+                wrapperOld.classList.remove('hidden'); wrapperNew.classList.remove('hidden'); 
+                sliderHandle.classList.remove('hidden'); swipeLabels.classList.remove('hidden');
                 wrapperNew.style.clipPath = `polygon(0 0, ${{swipePos}}% 0, ${{swipePos}}% 100%, 0 100%)`; sliderHandle.style.left = swipePos + '%';
                 statusTextEl.innerHTML = 'Showing: <strong style="color: #00bcd4;">Swipe Mode</strong>';
             }} else if (overlayMode && visual.old && visual.curr) {{
@@ -886,22 +878,14 @@ class DiffWindow:
                     wrapperNew.classList.add('overlay-blend-mode');
                     oldImgEl.classList.add('diff-old-tint');
                     newImgEl.classList.add('diff-new-tint');
-                    
-                    if (showSilk) {{
-                        oldSilkImgEl.classList.add('diff-old-tint');
-                        newSilkImgEl.classList.add('diff-new-tint');
-                    }}
+                    if (showSilk) {{ oldSilkImgEl.classList.add('diff-old-tint'); newSilkImgEl.classList.add('diff-new-tint'); }}
                 }}
-                
-                statusTextEl.innerHTML = 'Showing: <strong style="color: #FF9800;">Overlay Mode</strong>';
+                statusTextEl.innerHTML = 'Showing: <strong class="color-old">Overlay Mode</strong>';
             }} else if (showOld && visual.old) {{
-                wrapperOld.classList.remove('hidden'); statusTextEl.innerHTML = 'Showing: <strong style="color: #F44336;">' + targetName + '</strong>';
+                wrapperOld.classList.remove('hidden'); statusTextEl.innerHTML = 'Showing: <strong class="color-err">' + targetName + '</strong>';
             }} else {{
-                if (visual.curr) {{
-                    wrapperNew.classList.remove('hidden');
-                    if (!visual.old && file.status !== "Unchanged") noOldMsgEl.classList.remove('hidden');
-                }}
-                statusTextEl.innerHTML = 'Showing: <strong style="color: #4CAF50;">Local Changes</strong>';
+                if (visual.curr) {{ wrapperNew.classList.remove('hidden'); if (!visual.old && file.status !== "Unchanged") noOldMsgEl.classList.remove('hidden'); }}
+                statusTextEl.innerHTML = 'Showing: <strong class="color-new">Local Changes</strong>';
             }}
         }}
 
@@ -915,6 +899,7 @@ class DiffWindow:
             else if (event.code === 'KeyO') {{ event.preventDefault(); toggleOverlay(); }}
             else if (event.code === 'KeyW') {{ event.preventDefault(); toggleSwipe(); }}
             else if (event.code === 'KeyT') {{ event.preventDefault(); toggleTheme(); }}
+            else if (event.code === 'KeyC') {{ event.preventDefault(); toggleColorblind(); }}
             else if (event.key >= '1' && event.key <= '9') {{ const idx = parseInt(event.key) - 1; if (layerDrop.options[idx]) {{ layerDrop.selectedIndex = idx; changeLayer(layerDrop.value); }} }}
             else if (event.code === 'KeyS') {{ silkCheckbox.checked = !silkCheckbox.checked; toggleSilk(silkCheckbox.checked); }}
         }});

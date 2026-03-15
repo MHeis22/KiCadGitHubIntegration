@@ -4,11 +4,32 @@ import subprocess
 import pcbnew
 import re
 import webbrowser
+import json
 from .diff_engine import DiffEngine
 from .diff_window import DiffWindow
 
 # Fix for Windows: prevents the plugin from popping up CMD windows or hanging
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
+def get_settings_path():
+    """Returns the path for the global plugin settings file."""
+    return os.path.expanduser('~/.kicad_git_diff_settings.json')
+
+def load_settings():
+    """Loads settings from the user's home directory."""
+    try:
+        with open(get_settings_path(), 'r') as f:
+            return json.load(f)
+    except Exception:
+        return {'colorblind': False}
+
+def save_settings(settings):
+    """Saves settings to the user's home directory."""
+    try:
+        with open(get_settings_path(), 'w') as f:
+            json.dump(settings, f)
+    except Exception as e:
+        print(f"Error saving settings: {e}")
 
 def is_git_installed():
     """Checks if git is available on the system PATH."""
@@ -18,6 +39,32 @@ def is_git_installed():
         return True
     except (FileNotFoundError, subprocess.CalledProcessError):
         return False
+
+class SettingsDialog(wx.Dialog):
+    def __init__(self, parent, current_settings):
+        super().__init__(parent, title="Settings", size=(380, 150))
+        self.settings = current_settings.copy()
+        
+        vbox = wx.BoxSizer(wx.VERTICAL)
+        
+        self.cb_colorblind = wx.CheckBox(self, label="Colorblind Mode (Blue/Yellow diffs instead of Red/Green)")
+        self.cb_colorblind.SetValue(self.settings.get('colorblind', False))
+        vbox.Add(self.cb_colorblind, flag=wx.ALL, border=15)
+        
+        btn_sizer = wx.StdDialogButtonSizer()
+        btn_ok = wx.Button(self, wx.ID_OK)
+        btn_cancel = wx.Button(self, wx.ID_CANCEL)
+        btn_sizer.AddButton(btn_ok)
+        btn_sizer.AddButton(btn_cancel)
+        btn_sizer.Realize()
+        
+        vbox.Add(btn_sizer, flag=wx.ALIGN_RIGHT|wx.BOTTOM|wx.RIGHT, border=10)
+        self.SetSizer(vbox)
+        self.CenterOnParent()
+        
+    def get_settings(self):
+        self.settings['colorblind'] = self.cb_colorblind.IsChecked()
+        return self.settings
 
 class CommitDialog(wx.Dialog):
     def __init__(self, parent, changed_files, kicad_version="Unknown KiCad Version"):
@@ -80,26 +127,31 @@ class CommitDialog(wx.Dialog):
 
 class CommandCenterDialog(wx.Dialog):
     def __init__(self, parent, project_dir):
-        # Increased size to accommodate the Open GitHub button
-        super().__init__(parent, title="GitHub Command Center", size=(500, 800))
+        super().__init__(parent, title="GitHub Command Center", style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.project_dir = project_dir
         self.git_cmd = "git.exe" if os.name == "nt" else "git"
         self.engine = DiffEngine(self.project_dir)
         self.kicad_version = self.engine.get_kicad_version()
+        self.settings = load_settings()
         
-        self.panel = wx.Panel(self)
-        self.main_vbox = wx.BoxSizer(wx.VERTICAL)
+        self.main_panel = wx.Panel(self)
+        self.outer_vbox = wx.BoxSizer(wx.VERTICAL)
+        
+        # Added ScrolledWindow to ensure it scales perfectly on any monitor size
+        self.scroll_panel = wx.ScrolledWindow(self.main_panel)
+        self.scroll_panel.SetScrollRate(10, 10)
+        self.scroll_vbox = wx.BoxSizer(wx.VERTICAL)
         
         # --- Header & Status ---
-        header = wx.StaticText(self.panel, label="Git Hardware Control")
+        header = wx.StaticText(self.scroll_panel, label="Git Hardware Control")
         header_font = header.GetFont()
         header_font.SetWeight(wx.FONTWEIGHT_BOLD)
         header_font.SetPointSize(12)
         header.SetFont(header_font)
-        self.main_vbox.Add(header, flag=wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, border=15)
+        self.scroll_vbox.Add(header, flag=wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, border=15)
 
-        self.status_lbl = wx.StaticText(self.panel, label="Checking status...\n")
-        self.main_vbox.Add(self.status_lbl, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+        self.status_lbl = wx.StaticText(self.scroll_panel, label="Checking status...\n")
+        self.scroll_vbox.Add(self.status_lbl, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
         
         # --- Setup Section (Dynamic) ---
         self.setup_section_container = None
@@ -108,40 +160,40 @@ class CommandCenterDialog(wx.Dialog):
         
         # --- Compare Target Selector ---
         target_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        target_sizer.Add(wx.StaticText(self.panel, label="Compare against:"), flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=5)
+        target_sizer.Add(wx.StaticText(self.scroll_panel, label="Compare against:"), flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=5)
         
         targets = self.engine.get_git_targets()
         if not targets:
             targets = ["HEAD"]
             
-        self.cb_targets = wx.ComboBox(self.panel, choices=targets, style=wx.CB_READONLY)
+        self.cb_targets = wx.ComboBox(self.scroll_panel, choices=targets, style=wx.CB_READONLY)
         self.cb_targets.SetSelection(0)
         self.cb_targets.Bind(wx.EVT_COMBOBOX, self.on_target_change)
         
         target_sizer.Add(self.cb_targets, proportion=1, flag=wx.EXPAND)
-        self.main_vbox.Add(target_sizer, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+        self.scroll_vbox.Add(target_sizer, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
         
         # --- DRC ---
-        self.cb_drc = wx.CheckBox(self.panel, label="Run DRC Checks (Shows DRC violations as diffs)")
+        self.cb_drc = wx.CheckBox(self.scroll_panel, label="Run DRC Checks (Shows DRC violations as diffs)")
         self.cb_drc.SetToolTip("Executes KiCad's design rules checker and compares violations.")
         self.cb_drc.SetValue(False)
-        self.main_vbox.Add(self.cb_drc, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=15)
+        self.scroll_vbox.Add(self.cb_drc, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=15)
 
         # --- Action Buttons ---
-        btn_diff = wx.Button(self.panel, label="View Local Changes (Visual Diff)", size=(-1, 40))
-        btn_diff_all = wx.Button(self.panel, label="View All Files (Including Unchanged)", size=(-1, 40))
-        btn_commit = wx.Button(self.panel, label="Save Snapshot (Quick Commit)", size=(-1, 40))
-        btn_switch = wx.Button(self.panel, label="Switch Working Branch", size=(-1, 40))
+        btn_diff = wx.Button(self.scroll_panel, label="View Local Changes (Visual Diff)", size=(-1, 40))
+        btn_diff_all = wx.Button(self.scroll_panel, label="View All Files (Including Unchanged)", size=(-1, 40))
+        btn_commit = wx.Button(self.scroll_panel, label="Save Snapshot (Quick Commit)", size=(-1, 40))
+        btn_switch = wx.Button(self.scroll_panel, label="Switch Working Branch", size=(-1, 40))
         
         stash_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        btn_stash = wx.Button(self.panel, label="Stash Local Changes", size=(-1, 40))
-        btn_pop = wx.Button(self.panel, label="Pop Last Stash", size=(-1, 40))
+        btn_stash = wx.Button(self.scroll_panel, label="Stash Local Changes", size=(-1, 40))
+        btn_pop = wx.Button(self.scroll_panel, label="Pop Last Stash", size=(-1, 40))
         stash_sizer.Add(btn_stash, proportion=1, flag=wx.RIGHT, border=5)
         stash_sizer.Add(btn_pop, proportion=1, flag=wx.LEFT, border=5)
         
-        btn_push = wx.Button(self.panel, label="Push Changes to GitHub", size=(-1, 40))
-        btn_github = wx.Button(self.panel, label="Open GitHub Page", size=(-1, 40))
-        btn_sync = wx.Button(self.panel, label="Download from Server (Force Sync)", size=(-1, 40))
+        btn_push = wx.Button(self.scroll_panel, label="Push Changes to GitHub", size=(-1, 40))
+        btn_github = wx.Button(self.scroll_panel, label="Open GitHub Page", size=(-1, 40))
+        btn_sync = wx.Button(self.scroll_panel, label="Download from Server (Force Sync)", size=(-1, 40))
         btn_sync.SetBackgroundColour(wx.Colour(230, 240, 255)) 
         
         btn_diff.Bind(wx.EVT_BUTTON, self.on_diff)
@@ -154,49 +206,78 @@ class CommandCenterDialog(wx.Dialog):
         btn_github.Bind(wx.EVT_BUTTON, self.on_open_github)
         btn_sync.Bind(wx.EVT_BUTTON, self.on_force_sync)
         
-        self.main_vbox.Add(btn_diff, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
-        self.main_vbox.Add(btn_diff_all, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
-        self.main_vbox.Add(btn_commit, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
-        self.main_vbox.Add(btn_switch, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
-        self.main_vbox.Add(stash_sizer, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
-        self.main_vbox.Add(btn_push, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
-        self.main_vbox.Add(btn_github, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
-        self.main_vbox.Add(btn_sync, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
+        self.scroll_vbox.Add(btn_diff, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
+        self.scroll_vbox.Add(btn_diff_all, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
+        self.scroll_vbox.Add(btn_commit, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
+        self.scroll_vbox.Add(btn_switch, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
+        self.scroll_vbox.Add(stash_sizer, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
+        self.scroll_vbox.Add(btn_push, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
+        self.scroll_vbox.Add(btn_github, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
+        self.scroll_vbox.Add(btn_sync, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
 
         # --- Help Text ---
-        help_box = wx.StaticBox(self.panel, label="Sync Instructions")
+        help_box = wx.StaticBox(self.scroll_panel, label="Sync Instructions")
         help_sizer = wx.StaticBoxSizer(help_box, wx.VERTICAL)
         help_text = (
             "TO SEE CHANGES AFTER SYNC/SWITCH/POP:\n"
             "1. Run 'Download', 'Switch Branch', or 'Pop Stash'.\n"
-            "2. Close your PCB/Schematic editor.\n"
+            "2. Close your PCB and Schematic editor.\n"
             "3. If KiCad asks to save, select 'DISCARD CHANGES'.\n"
             "4. Re-open the file to see the loaded version."
         )
-        st_help = wx.StaticText(self.panel, label=help_text)
+        st_help = wx.StaticText(self.scroll_panel, label=help_text)
         st_help.SetForegroundColour(wx.Colour(100, 100, 100))
         help_sizer.Add(st_help, flag=wx.ALL, border=5)
-        self.main_vbox.Add(help_sizer, flag=wx.EXPAND | wx.ALL, border=15)
+        self.scroll_vbox.Add(help_sizer, flag=wx.EXPAND | wx.ALL, border=15)
         
-        btn_close = wx.Button(self.panel, label="Close")
+        self.scroll_panel.SetSizer(self.scroll_vbox)
+        
+        # --- Persistent Bottom Bar ---
+        bottom_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        btn_settings = wx.Button(self.main_panel, label="⚙ Settings")
+        btn_settings.Bind(wx.EVT_BUTTON, self.on_settings)
+        btn_close = wx.Button(self.main_panel, label="Close")
         btn_close.Bind(wx.EVT_BUTTON, self.on_close)
-        self.main_vbox.Add(btn_close, flag=wx.ALIGN_RIGHT | wx.RIGHT | wx.BOTTOM, border=15)
         
-        self.panel.SetSizer(self.main_vbox)
+        bottom_sizer.Add(btn_settings, flag=wx.LEFT, border=15)
+        bottom_sizer.AddStretchSpacer()
+        bottom_sizer.Add(btn_close, flag=wx.RIGHT, border=15)
+        
+        self.outer_vbox.Add(self.scroll_panel, proportion=1, flag=wx.EXPAND | wx.ALL, border=0)
+        self.outer_vbox.Add(bottom_sizer, flag=wx.EXPAND | wx.BOTTOM | wx.TOP, border=15)
+        self.main_panel.SetSizer(self.outer_vbox)
+        
+        # Calculate optimal size (capped to 85% of screen height)
+        best_scroll_size = self.scroll_vbox.GetMinSize()
+        display_rect = wx.GetClientDisplayRect()
+        max_height = int(display_rect.height * 0.85)
+        
+        target_width = max(500, best_scroll_size.width + 40)
+        target_height = min(best_scroll_size.height + 100, max_height)
+        
+        self.SetSize((target_width, target_height))
+        self.CenterOnScreen()
+
         self.update_git_status()
 
     def create_setup_ui(self):
         """Builds the Setup UI section if git is not initialized."""
-        setup_box = wx.StaticBox(self.panel, label="New Project Setup")
+        setup_box = wx.StaticBox(self.scroll_panel, label="New Project Setup")
         self.setup_section_container = wx.StaticBoxSizer(setup_box, wx.VERTICAL)
         
-        btn_setup = wx.Button(self.panel, label="Initialize & Link to GitHub")
+        btn_setup = wx.Button(self.scroll_panel, label="Initialize & Link to GitHub")
         btn_setup.SetBackgroundColour(wx.Colour(200, 255, 200))
         btn_setup.Bind(wx.EVT_BUTTON, self.on_setup_repo)
         
         self.setup_section_container.Add(btn_setup, flag=wx.EXPAND | wx.ALL, border=5)
-        # Add it to the top of the action list (index 2, after header and status)
-        self.main_vbox.Insert(2, self.setup_section_container, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+        self.scroll_vbox.Insert(2, self.setup_section_container, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+
+    def on_settings(self, event):
+        dlg = SettingsDialog(self, self.settings)
+        if dlg.ShowModal() == wx.ID_OK:
+            self.settings = dlg.get_settings()
+            save_settings(self.settings)
+        dlg.Destroy()
 
     def on_target_change(self, event):
         self.update_git_status()
@@ -257,7 +338,6 @@ class CommandCenterDialog(wx.Dialog):
                 if not os.path.isdir(os.path.join(self.project_dir, ".git")):
                     subprocess.run([self.git_cmd, "-C", self.project_dir, "init"], check=True, creationflags=CREATE_NO_WINDOW)
                 
-                # Check for .gitignore creation
                 if not os.path.exists(os.path.join(self.project_dir, ".gitignore")):
                     if wx.IsBusy(): wx.EndBusyCursor()
                     create_gi = wx.MessageBox("Create a default .gitignore file for KiCad?", "Create .gitignore?", wx.YES_NO | wx.ICON_QUESTION)
@@ -275,15 +355,13 @@ class CommandCenterDialog(wx.Dialog):
                 
                 # --- UI Refresh Logic ---
                 if self.setup_section_container:
-                    # Hide the items in the sizer and the static box itself
                     self.setup_section_container.ShowItems(False)
-                    self.main_vbox.Hide(self.setup_section_container, recursive=True)
-                    # Force the panel to update its layout now that an item is gone
-                    self.panel.Layout()
+                    self.scroll_vbox.Hide(self.setup_section_container, recursive=True)
+                    self.scroll_panel.Layout()
+                    self.main_panel.Layout()
 
                 self.update_git_status()
                 
-                # Re-fetch targets (now that git exists)
                 new_targets = self.engine.get_git_targets()
                 if new_targets:
                     self.cb_targets.SetItems(new_targets)
@@ -375,12 +453,13 @@ class CommandCenterDialog(wx.Dialog):
         try:
             selected_target = self.cb_targets.GetStringSelection()
             run_checks = self.cb_drc.GetValue()
+            cb_mode = self.settings.get('colorblind', False)
             
             diffs, summary = self.engine.render_all_diffs(show_unchanged=False, compare_target=selected_target, run_drc=run_checks)
             if not diffs:
                 wx.MessageBox(f"No local changes detected against {selected_target}.", "Info")
             else:
-                win = DiffWindow(diffs, summary, target_name=selected_target, kicad_version=self.kicad_version)
+                win = DiffWindow(diffs, summary, target_name=selected_target, kicad_version=self.kicad_version, colorblind=cb_mode)
                 win.Show()
         finally:
             if wx.IsBusy(): wx.EndBusyCursor()
@@ -390,13 +469,13 @@ class CommandCenterDialog(wx.Dialog):
         try:
             selected_target = self.cb_targets.GetStringSelection()
             run_checks = self.cb_drc.GetValue()
+            cb_mode = self.settings.get('colorblind', False)
             
-            # Use show_unchanged=True to render all files
             diffs, summary = self.engine.render_all_diffs(show_unchanged=True, compare_target=selected_target, run_drc=run_checks)
             if not diffs:
                 wx.MessageBox(f"No schematic or PCB files found to render.", "Info")
             else:
-                win = DiffWindow(diffs, summary, target_name=selected_target, kicad_version=self.kicad_version)
+                win = DiffWindow(diffs, summary, target_name=selected_target, kicad_version=self.kicad_version, colorblind=cb_mode)
                 win.Show()
         finally:
             if wx.IsBusy(): wx.EndBusyCursor()
@@ -472,10 +551,8 @@ class CommandCenterDialog(wx.Dialog):
                     if res_branch.returncode != 0:
                         subprocess.run([self.git_cmd, "-C", self.project_dir, "checkout", branch], creationflags=CREATE_NO_WINDOW)
 
-                # Reset staging area first so we don't accidentally commit things that were manually staged
                 subprocess.run([self.git_cmd, "-C", self.project_dir, "reset"], creationflags=CREATE_NO_WINDOW)
                 
-                # Add only the explicitly selected files
                 cmd_add = [self.git_cmd, "-C", self.project_dir, "add", "--"] + selected_files
                 subprocess.run(cmd_add, check=True, creationflags=CREATE_NO_WINDOW)
                 
@@ -525,7 +602,6 @@ class CommandCenterDialog(wx.Dialog):
                                  capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
             if res.returncode == 0:
                 url = res.stdout.strip()
-                # Parse standard ssh git formats directly into an https format
                 if url.startswith("git@github.com:"):
                     url = url.replace("git@github.com:", "https://github.com/")
                 if url.endswith(".git"):
