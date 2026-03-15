@@ -283,18 +283,64 @@ class CommandCenterDialog(wx.Dialog):
         self.outer_vbox.Add(bottom_sizer, flag=wx.EXPAND | wx.BOTTOM | wx.TOP, border=15)
         self.main_panel.SetSizer(self.outer_vbox)
         
-        # Calculate optimal size (capped to 85% of screen height)
+        # Calculate optimal size dynamically based on environment
         best_scroll_size = self.scroll_vbox.GetMinSize()
         display_rect = wx.GetClientDisplayRect()
         max_height = int(display_rect.height * 0.85)
         
-        target_width = max(500, best_scroll_size.width + 50)
-        target_height = min(best_scroll_size.height + 100, max_height)
+        target_width = max(550, best_scroll_size.width + 60)
+        target_height = min(best_scroll_size.height + 120, max_height)
         
+        self.SetMinSize((500, 400)) # Guarantee UI doesn't become squished/unusable
         self.SetSize((target_width, target_height))
         self.CenterOnScreen()
+        self.Layout()
 
         self.update_git_status()
+        self._check_and_prompt_git_encoding()
+
+    def _check_and_prompt_git_encoding(self, force_prompt=False):
+        """
+        Git quotes paths with non-ASCII chars by default causing octal escapes (e.g., \303\266).
+        This breaks subprocess file operations. Prompt to apply `git config core.quotePath false`.
+        """
+        if not os.path.isdir(os.path.join(self.project_dir, ".git")):
+            return False
+            
+        try:
+            status_dict = self.engine.get_git_status(target="HEAD")
+            has_escaped_files = any('\\' in f for f in status_dict.keys())
+            
+            has_non_ascii = any(ord(c) > 127 for c in self.project_dir)
+            if not has_non_ascii:
+                for f in os.listdir(self.project_dir):
+                    if any(ord(c) > 127 for c in f):
+                        has_non_ascii = True
+                        break
+
+            if has_non_ascii or has_escaped_files or force_prompt:
+                res = subprocess.run([self.git_cmd, "-C", self.project_dir, "config", "--get", "core.quotePath"], 
+                                     capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
+                
+                # If it's not explicitly false, Git encodes files with 'ö', 'ä', etc.
+                if res.stdout.strip() != "false":
+                    msg = ("Special characters (like ö, ä, å) were detected in your project path or files.\n\n"
+                           "Git by default escapes these characters (e.g. '\\303\\266'), which will cause operations like Commit to fail.\n\n"
+                           "Would you like to automatically configure Git to handle these characters correctly?")
+                    
+                    dlg = wx.MessageDialog(self, msg, "Fix Git Character Encoding", wx.YES_NO | wx.ICON_WARNING)
+                    result = dlg.ShowModal()
+                    dlg.Destroy()
+                    
+                    if result == wx.ID_YES:
+                        subprocess.run([self.git_cmd, "-C", self.project_dir, "config", "core.quotePath", "false"], creationflags=CREATE_NO_WINDOW)
+                        wx.MessageBox("Git encoding fixed! Filenames will now display correctly.", "Success")
+                        self.update_git_status()
+                        return True
+        except Exception as e:
+            print(f"Error checking git encoding: {e}")
+            
+        return False
 
     def create_setup_ui(self):
         """Builds the Setup UI section if git is not initialized."""
@@ -390,10 +436,24 @@ class CommandCenterDialog(wx.Dialog):
                 
                 # --- UI Refresh Logic ---
                 if self.setup_section_container:
-                    self.setup_section_container.ShowItems(False)
-                    self.scroll_vbox.Hide(self.setup_section_container, recursive=True)
-                    self.scroll_panel.Layout()
+                    # Destroy widgets to perfectly reclaim layout space and prevent overlap bugs
+                    for item in self.setup_section_container.GetChildren():
+                        if item.IsWindow():
+                            item.GetWindow().Destroy()
+                    box = self.setup_section_container.GetStaticBox()
+                    if box:
+                        box.Destroy()
+                    
+                    self.scroll_vbox.Detach(self.setup_section_container)
+                    self.setup_section_container = None
+                    
+                    # Force thorough recursive layout refreshes
+                    self.scroll_vbox.Layout()
+                    self.scroll_panel.FitInside()
                     self.main_panel.Layout()
+                    self.Layout()
+                    self.Refresh()
+                    self.Update()
 
                 self.update_git_status()
                 
@@ -406,6 +466,9 @@ class CommandCenterDialog(wx.Dialog):
                 wx.MessageBox(f"Failed to setup repository: {e}", "Error", wx.ICON_ERROR)
             finally:
                 if wx.IsBusy(): wx.EndBusyCursor()
+                
+            # Verify and fix encoding right after repo initialization 
+            self._check_and_prompt_git_encoding()
         dlg.Destroy()
 
     def on_switch_branch(self, event):
@@ -559,6 +622,16 @@ class CommandCenterDialog(wx.Dialog):
         status_dict = self.engine.get_git_status(target="HEAD")
         changed_files = list(status_dict.keys())
         
+        # Guard against unhandled octal escapes in filenames before throwing it to the Commit Dialog
+        if any('\\' in f for f in changed_files):
+            wx.MessageBox("Escaped filenames detected (e.g. \\303). Let's fix your Git encoding first so the commit doesn't crash.", "Encoding Issue", wx.ICON_WARNING)
+            if self._check_and_prompt_git_encoding(force_prompt=True):
+                # Fetch clean unquoted filenames
+                status_dict = self.engine.get_git_status(target="HEAD")
+                changed_files = list(status_dict.keys())
+            else:
+                return # Abort if they didn't fix it
+
         if not changed_files:
             wx.MessageBox("No changes detected. Workspace is clean.", "Info")
             return

@@ -205,6 +205,15 @@ class DiffWindow:
         button:hover {{ background: #005999; }}
         button.btn-secondary {{ background: #555; }}
         button.btn-secondary:hover {{ background: #777; }}
+        
+        /* Highlighted toggle button state */
+        button.btn-active {{
+            background: #007acc !important;
+            color: white !important;
+            border-color: #007acc !important;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+        }}
+
         .status-indicator {{ font-size: 14px; color: var(--text-muted); min-width: 220px; text-align: right; }}
         
         #viewer-container {{ flex: 1; display: flex; justify-content: center; align-items: center; padding: 20px; overflow: hidden; position: relative; touch-action: none; }}
@@ -288,8 +297,8 @@ class DiffWindow:
             
             <div class="controls-wrapper">
                 <div class="selection-row">
-                    <button class="btn-secondary" onclick="toggleTheme()" title="Shortcut: T">Toggle Theme</button>
-                    <button class="btn-secondary" onclick="toggleColorblind()" title="Shortcut: C">Colorblind</button>
+                    <button class="btn-secondary" onclick="toggleTheme()" title="Shortcut: T" id="btn-theme">Toggle Theme</button>
+                    <button class="btn-secondary" onclick="toggleColorblind()" title="Shortcut: C" id="btn-colorblind">Colorblind</button>
                     <button class="btn-secondary" onclick="saveReport()">Save Report</button>
                     
                     <label id="silk-toggle-cont" class="checkbox-label hidden">
@@ -409,14 +418,22 @@ class DiffWindow:
         const healthContainer = document.getElementById('health-container');
         const viewToggles = document.getElementById('view-toggles');
         
+        const btnTheme = document.getElementById('btn-theme');
+        const btnColorblind = document.getElementById('btn-colorblind');
         const btnToggleDiff = document.getElementById('btn-toggle-diff');
         const btnToggleOverlay = document.getElementById('btn-toggle-overlay');
         const btnToggleSwipe = document.getElementById('btn-toggle-swipe');
 
         document.querySelectorAll('.target-name-val').forEach(el => el.innerText = targetName);
 
-        function toggleTheme() {{ document.body.classList.toggle('light-theme'); }}
-        function toggleColorblind() {{ document.body.classList.toggle('colorblind-theme'); }}
+        function toggleTheme() {{ 
+            document.body.classList.toggle('light-theme'); 
+            btnTheme.classList.toggle('btn-active', document.body.classList.contains('light-theme'));
+        }}
+        function toggleColorblind() {{ 
+            document.body.classList.toggle('colorblind-theme'); 
+            btnColorblind.classList.toggle('btn-active', document.body.classList.contains('colorblind-theme'));
+        }}
 
         function saveReport() {{
             const docHtml = '<!DOCTYPE html>\\n<html lang="en">' + document.documentElement.innerHTML + '</html>';
@@ -632,6 +649,10 @@ class DiffWindow:
         }}
 
         function init() {{
+            // Set initial active highlights
+            btnTheme.classList.toggle('btn-active', document.body.classList.contains('light-theme'));
+            btnColorblind.classList.toggle('btn-active', document.body.classList.contains('colorblind-theme'));
+
             fileListEl.innerHTML = '';
             diffData.forEach((file, index) => {{
                 const li = document.createElement('li');
@@ -728,6 +749,11 @@ class DiffWindow:
             bomContainer.classList.add('hidden');
             todosContainer.classList.add('hidden');
             healthContainer.classList.add('hidden');
+
+            // Set highlighted button states based on variables
+            btnToggleSwipe.classList.toggle('btn-active', swipeMode);
+            btnToggleOverlay.classList.toggle('btn-active', overlayMode);
+            btnToggleDiff.classList.toggle('btn-active', showOld);
 
             // --- Update PCB Dimensions ---
             if (isPcb && currentTab === 'visual') {{
@@ -867,6 +893,7 @@ class DiffWindow:
                 statusTextEl.innerHTML = 'Showing: <strong style="color: #00bcd4;">Swipe Mode</strong>';
             }} else if (overlayMode && visual.old && visual.curr) {{
                 wrapperOld.classList.remove('hidden'); wrapperNew.classList.remove('hidden'); 
+                swipeLabels.classList.remove('hidden'); // Show labels for color correlation in Overlay Mode
                 
                 if (isSch) {{
                     wrapperNew.classList.add('sch-overlay-mode');

@@ -89,13 +89,22 @@ class DiffEngine:
             
         try:
             with open(pcb_file, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read(10000)
-                matches = re.findall(r'\(\d+\s+"([^"]+)"\s+signal\)', content)
+                content = f.read(50000) # Increased to safely reach the (layers ...) block in large boards
+                
+                # Match all valid copper types instead of just 'signal'
+                matches = re.findall(r'\(\d+\s+"([^"]+)"\s+(?:signal|power|mixed|jumper)\)', content)
                 if matches:
                     layers = matches + ["F.Silkscreen", "B.Silkscreen", "Edge.Cuts"]
+                    
+                    # Fail-safe: ensure outer layers aren't accidentally dropped if parsing behaves oddly
+                    if "F.Cu" not in layers: layers.insert(0, "F.Cu")
+                    if "B.Cu" not in layers: layers.insert(1, "B.Cu")
         except:
             pass
-        return layers
+            
+        # De-duplicate while preserving order
+        seen = set()
+        return [x for x in layers if not (x in seen or seen.add(x))]
 
     def _generate_text_diff(self, old_file, new_file):
         if not old_file or not new_file or not os.path.exists(old_file) or not os.path.exists(new_file):
