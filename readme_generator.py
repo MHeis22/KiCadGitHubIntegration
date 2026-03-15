@@ -1,11 +1,11 @@
 import os
 import re
 import glob
+from .kicad_parser import get_pcb_dimensions, get_pcb_layers, get_bom_data
 
 class ReadmeGenerator:
-    def __init__(self, project_dir, engine):
+    def __init__(self, project_dir):
         self.project_dir = project_dir
-        self.engine = engine
 
     def update_readme(self, kicad_version="Unknown KiCad Version"):
         pcb_files = glob.glob(os.path.join(self.project_dir, "*.kicad_pcb"))
@@ -19,12 +19,12 @@ class ReadmeGenerator:
         layer_count = "Unknown"
 
         if pcb_file:
-            dims = self.engine._get_pcb_dimensions(pcb_file)
+            dims = get_pcb_dimensions(pcb_file)
             if dims:
                 dims_str = f"{dims['w']} x {dims['h']} mm"
                 area_str = f"{dims['area']} mm²"
 
-            layers = self.engine._get_pcb_layers(pcb_file)
+            layers = get_pcb_layers(pcb_file)
             cu_layers = [l for l in layers if l.endswith('.Cu')]
             layer_count = f"{len(cu_layers)} Copper Layers" if cu_layers else "Unknown"
 
@@ -41,7 +41,7 @@ class ReadmeGenerator:
         if sch_files:
             for sch in sch_files:
                 # Merge BOM data from ALL hierarchical sheets
-                sch_bom = self.engine._get_bom_data(sch)
+                sch_bom = get_bom_data(sch)
                 bom.update(sch_bom)
                 
                 # Extract Power Nets safely directly from the schematic text
