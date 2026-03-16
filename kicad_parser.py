@@ -167,6 +167,8 @@ def get_pcb_structure(file_path):
                 
                 if ref_match:
                     ref = ref_match.group(1)
+                    if ref.startswith('TP'): continue # EXCLUDE TEST POINTS
+                    
                     val = val_match.group(1) if val_match else ""
                     components[ref] = {'fp': name, 'val': val}
     except Exception as e:
@@ -189,7 +191,7 @@ def get_sch_structure(file_path):
                 
                 if ref_match:
                     ref = ref_match.group(1)
-                    if ref == "Reference": continue
+                    if ref == "Reference" or ref.startswith('TP'): continue # EXCLUDE TEST POINTS
                     
                     fp = fp_match.group(1) if fp_match and fp_match.group(1) else (lib_match.group(1) if lib_match else "Unknown")
                     val = val_match.group(1) if val_match else ""
@@ -219,7 +221,8 @@ def get_bom_data(file_path, include_excluded_from_bom=False):
                 ref_match = re.search(r'\(\s*property\s+"Reference"\s+"([^"]+)"', block)
                 if not ref_match: continue
                 ref = ref_match.group(1)
-                if ref == "Reference": continue # Ignore template symbols
+                
+                if ref == "Reference" or ref.startswith('TP'): continue # EXCLUDE TEMPLATES AND TEST POINTS
                 
                 val_match = re.search(r'\(\s*property\s+"Value"\s+"([^"]*)"', block)
                 fp_match  = re.search(r'\(\s*property\s+"Footprint"\s+"([^"]*)"', block)

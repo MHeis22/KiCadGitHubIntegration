@@ -2,8 +2,8 @@ import wx
 
 class SettingsDialog(wx.Dialog):
     def __init__(self, parent, current_settings):
-        # Increased window height from 250 to 320 to accommodate the new inputs
-        super().__init__(parent, title="Settings", size=(450, 320)) 
+        # Increased window height from 320 to 380 to accommodate the new inputs
+        super().__init__(parent, title="Settings", size=(470, 380)) 
         self.settings = current_settings.copy()
         
         vbox = wx.BoxSizer(wx.VERTICAL)
@@ -18,6 +18,12 @@ class SettingsDialog(wx.Dialog):
         self.cb_readme.SetValue(self.settings.get('auto_readme', False))
         self.cb_readme.SetToolTip("Generates a sticky footer in your README with BOM and board stats.")
         vbox.Add(self.cb_readme, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=15)
+
+        # DRC Check in Readme
+        self.cb_readme_drc = wx.CheckBox(self, label="Include DRC (Design Rules Check) status in README")
+        self.cb_readme_drc.SetValue(self.settings.get('readme_drc', False))
+        self.cb_readme_drc.SetToolTip("Runs a background DRC check on the PCB during commit to display error/warning counts.")
+        vbox.Add(self.cb_readme_drc, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=15)
 
         # Silent Pull toggle
         self.cb_silent_pull = wx.CheckBox(self, label="Auto-Pull text files before pushing (Silent Pull)")
@@ -59,6 +65,7 @@ class SettingsDialog(wx.Dialog):
     def get_settings(self):
         self.settings['include_kicad_version'] = self.cb_kicad_version.IsChecked()
         self.settings['auto_readme'] = self.cb_readme.IsChecked()
+        self.settings['readme_drc'] = self.cb_readme_drc.IsChecked()
         self.settings['silent_pull'] = self.cb_silent_pull.IsChecked()
         
         # Capture the new dropdown settings

@@ -2,7 +2,11 @@ import os
 import re
 import glob
 import urllib.parse
-from .kicad_parser import get_pcb_dimensions, get_pcb_layers, get_bom_data, extract_todos
+import sys
+import subprocess
+import json
+import tempfile
+from .kicad_parser import get_pcb_dimensions, get_pcb_layers, get_bom_data, extract_todos, get_pcb_structure
 
 class ReadmeGenerator:
     def __init__(self, project_dir, settings=None):
@@ -41,13 +45,55 @@ class ReadmeGenerator:
                 
         return clean_val
 
+    def _get_drc_status(self, pcb_file):
+        """Silently runs DRC in the background and returns a formatted markdown string."""
+        kicad_cli = "kicad-cli.exe" if sys.platform == "win32" else "kicad-cli"
+        out_json = os.path.join(tempfile.gettempdir(), "readme_drc_report.json")
+        
+        if os.path.exists(out_json):
+            try: os.remove(out_json)
+            except: pass
+            
+        try:
+            # Run DRC and dump to a temp JSON file
+            subprocess.run([kicad_cli, "pcb", "drc", "--format", "json", "--output", out_json, pcb_file], 
+                           capture_output=True, cwd=self.project_dir)
+            
+            if os.path.exists(out_json):
+                with open(out_json, 'r', encoding='utf-8', errors='ignore') as f:
+                    data = json.load(f)
+                    
+                errors = 0
+                warnings = 0
+                
+                # Count standard violations
+                for v in data.get("violations", []):
+                    if v.get("severity") == "error": errors += 1
+                    else: warnings += 1
+                    
+                # Count unconnected items (which are effectively errors)
+                unconnected = len(data.get("unconnected_items", []))
+                errors += unconnected
+                
+                if errors == 0 and warnings == 0:
+                    return "✅ Clean (0 Errors, 0 Warnings)"
+                else:
+                    return f"⚠️ {errors} Errors, {warnings} Warnings"
+        except Exception as e:
+            return f"❓ Check Failed ({e})"
+        finally:
+            if os.path.exists(out_json):
+                try: os.remove(out_json)
+                except: pass
+                
+        return "❓ Unknown"
+
     def _extract_pcb_advanced(self, pcb_file):
         """Extracts deep technical insights from the PCB file via Regex."""
         data = {
             'vias': {'total': 0, 'through': 0, 'blind': 0, 'micro': 0},
             'smd_count': 0,
-            'tht_count': 0,
-            'total_footprints': 0
+            'tht_count': 0
         }
         if not pcb_file or not os.path.exists(pcb_file): return data
         
@@ -62,9 +108,6 @@ class ReadmeGenerator:
             data['vias']['through'] = total_vias - data['vias']['micro'] - data['vias']['blind']
                 
             # 2. Component Mounting Types
-            # This logic avoids schematic-only components (like fiducials/test points if strictly virtual) 
-            # and tightly matches KiCad's board statistics values.
-            data['total_footprints'] = len(re.findall(r'\(\s*footprint\b', content))
             data['smd_count'] = len(re.findall(r'\(\s*attr\s+smd\b', content))
             data['tht_count'] = len(re.findall(r'\(\s*attr\s+through_hole\b', content))
                 
@@ -121,7 +164,7 @@ class ReadmeGenerator:
                         if ref_match:
                             ref = ref_match.group(1)
                             val = val_match.group(1) if val_match else ""
-                            if ref != "Reference":
+                            if ref != "Reference" and not ref.startswith("TP"):
                                 data['dnp_list'].add(f"{ref} ({val})")
                                 
         return data
@@ -136,6 +179,7 @@ class ReadmeGenerator:
         dims_str = "Unknown"
         area_str = "Unknown"
         layer_count = "Unknown"
+        drc_status_str = None
         all_todos = set()
 
         if pcb_file:
@@ -149,6 +193,10 @@ class ReadmeGenerator:
             layer_count = f"{len(cu_layers)} Copper Layers" if cu_layers else "Unknown"
             
             all_todos.update(extract_todos(pcb_file))
+            
+            # Extract optional DRC metrics
+            if self.settings.get('readme_drc', False):
+                drc_status_str = self._get_drc_status(pcb_file)
 
         # --- 2. Gather Advanced Metrics ---
         pcb_adv = self._extract_pcb_advanced(pcb_file)
@@ -233,7 +281,10 @@ class ReadmeGenerator:
         if tb.get('rev'): md.append(f"| **Revision** | {tb['rev']} |")
         if tb.get('date'): md.append(f"| **Date** | {tb['date']} |")
 
-        pcb_total = pcb_adv['total_footprints'] if pcb_file else total_comps
+        # Utilize the improved components parser rather than raw footprint regex count
+        # This properly excludes Test Points (if filtered in the parser)
+        pcb_components = get_pcb_structure(pcb_file) if pcb_file else {}
+        pcb_total = len(pcb_components) if pcb_file else total_comps
 
         md.extend([
             f"| **Board Dimensions** | {dims_str} |",
@@ -242,9 +293,13 @@ class ReadmeGenerator:
             f"| **Total Components** | {pcb_total} |",
             f"| **SMD Components** | {pcb_adv['smd_count']} |",
             f"| **THT Components** | {pcb_adv['tht_count']} |",
-            f"| **Unique Parts** | {unique_parts} |",
-            f"| **KiCad Version** | {kicad_version} |\n"
+            f"| **Unique Parts** | {unique_parts} |"
         ])
+
+        if drc_status_str:
+            md.append(f"| **DRC Status** | {drc_status_str} |")
+
+        md.append(f"| **KiCad Version** | {kicad_version} |\n")
 
         if pcb_file:
             md.append("### 📐 Manufacturing & DRC")
