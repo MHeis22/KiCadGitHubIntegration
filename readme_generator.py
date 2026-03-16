@@ -45,8 +45,6 @@ class ReadmeGenerator:
         """Extracts deep technical insights from the PCB file via Regex."""
         data = {
             'vias': {'total': 0, 'through': 0, 'blind': 0, 'micro': 0},
-            'thickness': 'Unknown',
-            'nets': 0,
             'smd_count': 0,
             'tht_count': 0,
             'total_footprints': 0
@@ -56,21 +54,14 @@ class ReadmeGenerator:
         with open(pcb_file, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
             
-            # 1. Board Thickness
-            m_thick = re.search(r'\(setup[\s\S]*?\(board_thickness\s+([\d\.]+)\)', content)
-            if m_thick: data['thickness'] = f"{m_thick.group(1)} mm"
-            
-            # 2. Via Statistics
+            # 1. Via Statistics
             data['vias']['micro'] = len(re.findall(r'\(via\s+micro', content))
             data['vias']['blind'] = len(re.findall(r'\(via\s+blind', content))
             total_vias = len(re.findall(r'\(via\b', content))
             data['vias']['total'] = total_vias
             data['vias']['through'] = total_vias - data['vias']['micro'] - data['vias']['blind']
                 
-            # 3. Total Nets
-            data['nets'] = len(re.findall(r'\(net\s+\d+\s+"[^"]+"', content))
-            
-            # 4. Component Mounting Types
+            # 2. Component Mounting Types
             # This logic avoids schematic-only components (like fiducials/test points if strictly virtual) 
             # and tightly matches KiCad's board statistics values.
             data['total_footprints'] = len(re.findall(r'\(\s*footprint\b', content))
@@ -248,12 +239,10 @@ class ReadmeGenerator:
             f"| **Board Dimensions** | {dims_str} |",
             f"| **Total Area** | {area_str} |",
             f"| **Layer Count** | {layer_count} |",
-            f"| **Board Thickness** | {pcb_adv['thickness']} |",
             f"| **Total Components** | {pcb_total} |",
             f"| **SMD Components** | {pcb_adv['smd_count']} |",
             f"| **THT Components** | {pcb_adv['tht_count']} |",
             f"| **Unique Parts** | {unique_parts} |",
-            f"| **Total Nets** | {pcb_adv['nets']} |",
             f"| **KiCad Version** | {kicad_version} |\n"
         ])
 
@@ -277,7 +266,8 @@ class ReadmeGenerator:
 
         if mount_holes:
             md.append("### ⚙️ Mechanical")
-            md.append(f"- **Mounting Holes:** {len(mount_holes)} ({', '.join([m['ref'] for m in mount_holes])})")
+            mh_details = [f"{m['ref']} ({str(m['fp']).split(':')[-1].replace('|', '-') if m['fp'] else 'Unknown'})" for m in mount_holes]
+            md.append(f"- **Mounting Holes:** {len(mount_holes)} ({', '.join(mh_details)})")
             md.append("")
 
         dnp_list = sorted(list(sch_adv.get('dnp_list', set())))

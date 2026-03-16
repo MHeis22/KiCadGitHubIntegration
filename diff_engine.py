@@ -66,6 +66,7 @@ class DiffEngine:
         """Returns a list of local branches and recent commits for comparison."""
         targets = ["HEAD"]
         try:
+            # 1. Fetch Local Branches (This is what got accidentally deleted!)
             res = subprocess.run([self.git_cmd, "-C", self.project_dir, "branch", "--format=%(refname:short)"], 
                                  capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
             for line in res.stdout.split('\n'):
@@ -73,11 +74,15 @@ class DiffEngine:
                 if target and target not in targets:
                     targets.append(target)
             
+            # 2. Fetch Recent Commits (With your new truncation fix)
             res = subprocess.run([self.git_cmd, "-C", self.project_dir, "log", "-n", "10", "--format=%h (%s)"], 
                                  capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
             for line in res.stdout.split('\n'):
                 target = line.strip()
                 if target:
+                    # Truncate to 55 characters and add "..." if it was longer
+                    if len(target) > 55:
+                        target = target[:52] + "..."
                     targets.append(target)
         except:
             pass
