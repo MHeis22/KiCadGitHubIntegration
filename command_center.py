@@ -305,6 +305,7 @@ class CommandCenterDialog(wx.Dialog):
             content = (
                 "# KiCad modern backups (KiCad 7+)\n"
                 "*-backups/\n\n"
+                ".lck\n"
                 "# KiCad legacy backups and autosaves\n"
                 "*.bak\n*.kicad_pcb-bak\n*.kicad_sch-bak\n*.kicad_pro-bak\n"
                 "*-save.pro\n*-save.kicad_pcb\n*-save.kicad_sch\n"
