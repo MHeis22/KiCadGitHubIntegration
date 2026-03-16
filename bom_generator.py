@@ -45,16 +45,20 @@ class BOMGenerator:
             project_name = os.path.splitext(os.path.basename(pro_files[0]))[0]
 
         generated_files = []
+        
+        # Ensure the production directory exists
+        production_dir = os.path.join(self.project_dir, "production")
+        os.makedirs(production_dir, exist_ok=True)
 
         # 1. Generate Full Engineering BOM
         if gen_eng:
-            full_path = os.path.join(self.project_dir, f"{project_name}_full_bom.csv")
+            full_path = os.path.join(production_dir, f"{project_name}_full_bom.csv")
             self._write_full_bom(full_path, all_bom)
             generated_files.append(full_path)
 
         # 2. Generate Distributor BOM
         if gen_dist:
-            dist_path = os.path.join(self.project_dir, f"{project_name}_distributor_bom.csv")
+            dist_path = os.path.join(production_dir, f"{project_name}_distributor_bom.csv")
             self._write_distributor_bom(dist_path, all_bom)
             generated_files.append(dist_path)
 

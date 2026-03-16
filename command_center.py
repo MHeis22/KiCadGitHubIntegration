@@ -45,7 +45,7 @@ class CommandCenterDialog(wx.Dialog):
         # ==========================================
         # GROUP 1: Status & Comparison
         # ==========================================
-        box_status = wx.StaticBox(self.scroll_panel, label="Status & Comparison")
+        box_status = wx.StaticBox(self.scroll_panel, label="Status and Comparison")
         sizer_status = wx.StaticBoxSizer(box_status, wx.VERTICAL)
         
         self.status_lbl = wx.StaticText(self.scroll_panel, label="Checking status...\n")
@@ -69,7 +69,7 @@ class CommandCenterDialog(wx.Dialog):
         # ==========================================
         # GROUP 2: Review & Validation
         # ==========================================
-        box_review = wx.StaticBox(self.scroll_panel, label="Review & Validation")
+        box_review = wx.StaticBox(self.scroll_panel, label="Review and Validation")
         sizer_review = wx.StaticBoxSizer(box_review, wx.VERTICAL)
         
         btn_diff = wx.Button(self.scroll_panel, label="View Local Changes (Visual Diff)", size=(-1, 40))
@@ -123,7 +123,7 @@ class CommandCenterDialog(wx.Dialog):
         # ==========================================
         # GROUP 4: Remote / Sync
         # ==========================================
-        box_remote = wx.StaticBox(self.scroll_panel, label="Remote & Sync")
+        box_remote = wx.StaticBox(self.scroll_panel, label="Remote and Sync")
         sizer_remote = wx.StaticBoxSizer(box_remote, wx.VERTICAL)
 
         self.btn_push = wx.Button(self.scroll_panel, label="Push Changes to GitHub", size=(-1, 40))
@@ -235,7 +235,7 @@ class CommandCenterDialog(wx.Dialog):
         setup_box = wx.StaticBox(self.scroll_panel, label="New Project Setup")
         self.setup_section_container = wx.StaticBoxSizer(setup_box, wx.VERTICAL)
         
-        btn_setup = wx.Button(self.scroll_panel, label="Initialize & Link to GitHub")
+        btn_setup = wx.Button(self.scroll_panel, label="Initialize and Link to GitHub")
         btn_setup.SetBackgroundColour(wx.Colour(200, 255, 200))
         btn_setup.Bind(wx.EVT_BUTTON, self.on_setup_repo)
         

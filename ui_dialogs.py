@@ -40,15 +40,15 @@ class SettingsDialog(wx.Dialog):
         self.cb_bom_dist.SetToolTip("Compact CSV containing only what automated distributor tools need.")
         bom_sizer.Add(self.cb_bom_dist, flag=wx.LEFT | wx.RIGHT | wx.TOP, border=10)
         
-        self.cb_bom_eng = wx.CheckBox(self, label="Generate Engineering BOM (Includes Value & Footprint)")
+        self.cb_bom_eng = wx.CheckBox(self, label="Generate Engineering BOM (Includes Value and Footprint)")
         self.cb_bom_eng.SetValue(self.settings.get('generate_bom_eng', False))
-        self.cb_bom_eng.SetToolTip("Detailed CSV easier for human review.")
+        self.cb_bom_eng.SetToolTip("A more detailed CSV easier for human review.")
         bom_sizer.Add(self.cb_bom_eng, flag=wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, border=10)
         
         mpn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         mpn_sizer.Add(wx.StaticText(self, label="Custom MPN Field Name:"), flag=wx.ALIGN_CENTER_VERTICAL|wx.RIGHT, border=5)
         self.tc_mpn = wx.TextCtrl(self, value=self.settings.get('mpn_field_name', 'Manufacturer_Part_Number'))
-        self.tc_mpn.SetToolTip("The exact property name used in your KiCad symbols for the part number (e.g., LCSC, MPN, Part Number).")
+        self.tc_mpn.SetToolTip("The exact property name used in your KiCad symbols for the part number (e.g., LCSC, MPN, Part Number).") 
         mpn_sizer.Add(self.tc_mpn, proportion=1)
         bom_sizer.Add(mpn_sizer, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
         

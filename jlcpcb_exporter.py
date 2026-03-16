@@ -6,7 +6,7 @@ import tempfile
 class JLCPCBExporter:
     def __init__(self, board):
         self.board = board
-        # Standard layers JLCPCB cares about for up to 6-layer boards
+        # Standard layers JLCPCB cares about, supporting up to 30-layer boards and PCBA
         self.layers = [
             (pcbnew.F_Cu, 'F_Cu'),
             (pcbnew.B_Cu, 'B_Cu'),
@@ -14,6 +14,8 @@ class JLCPCBExporter:
             (pcbnew.B_SilkS, 'B_SilkS'),
             (pcbnew.F_Mask, 'F_Mask'),
             (pcbnew.B_Mask, 'B_Mask'),
+            (pcbnew.F_Paste, 'F_Paste'),
+            (pcbnew.B_Paste, 'B_Paste'), 
             (pcbnew.Edge_Cuts, 'Edge_Cuts'),
             (pcbnew.In1_Cu, 'In1_Cu'),
             (pcbnew.In2_Cu, 'In2_Cu'),
@@ -21,6 +23,30 @@ class JLCPCBExporter:
             (pcbnew.In4_Cu, 'In4_Cu'),
             (pcbnew.In5_Cu, 'In5_Cu'),
             (pcbnew.In6_Cu, 'In6_Cu'),
+            (pcbnew.In7_Cu, 'In7_Cu'),
+            (pcbnew.In8_Cu, 'In8_Cu'),
+            (pcbnew.In9_Cu, 'In9_Cu'),
+            (pcbnew.In10_Cu, 'In10_Cu'),
+            (pcbnew.In11_Cu, 'In11_Cu'),
+            (pcbnew.In12_Cu, 'In12_Cu'),
+            (pcbnew.In13_Cu, 'In13_Cu'),
+            (pcbnew.In14_Cu, 'In14_Cu'),
+            (pcbnew.In15_Cu, 'In15_Cu'),
+            (pcbnew.In16_Cu, 'In16_Cu'),
+            (pcbnew.In17_Cu, 'In17_Cu'),
+            (pcbnew.In18_Cu, 'In18_Cu'),
+            (pcbnew.In19_Cu, 'In19_Cu'),
+            (pcbnew.In20_Cu, 'In20_Cu'),
+            (pcbnew.In21_Cu, 'In21_Cu'),
+            (pcbnew.In22_Cu, 'In22_Cu'),
+            (pcbnew.In23_Cu, 'In23_Cu'),
+            (pcbnew.In24_Cu, 'In24_Cu'),
+            (pcbnew.In25_Cu, 'In25_Cu'),
+            (pcbnew.In26_Cu, 'In26_Cu'),
+            (pcbnew.In27_Cu, 'In27_Cu'),
+            (pcbnew.In28_Cu, 'In28_Cu'),
+            (pcbnew.In29_Cu, 'In29_Cu'),
+            (pcbnew.In30_Cu, 'In30_Cu'),
         ]
 
     def generate_zip(self, output_directory, zip_filename="gerbers"):
