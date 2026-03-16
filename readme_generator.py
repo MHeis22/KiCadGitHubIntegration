@@ -57,7 +57,7 @@ class ReadmeGenerator:
             content = f.read()
             
             # 1. Board Thickness
-            m_thick = re.search(r'\(setup[\s\S]*?\(thickness\s+([\d\.]+)\)', content)
+            m_thick = re.search(r'\(setup[\s\S]*?\(board_thickness\s+([\d\.]+)\)', content)
             if m_thick: data['thickness'] = f"{m_thick.group(1)} mm"
             
             # 2. Via Statistics
