@@ -198,7 +198,7 @@ def get_sch_structure(file_path):
         print(f"SCH Structure Error: {e}")
     return components
 
-def get_bom_data(file_path):
+def get_bom_data(file_path, include_excluded_from_bom=False):
     """Extracts structured BOM data, respecting Exclude from Board / DNP flags."""
     bom = {}
     if not file_path or not os.path.exists(file_path):
@@ -210,9 +210,11 @@ def get_bom_data(file_path):
             for block in blocks:
                 # Respect KiCad exclusion flags
                 if re.search(r'\(\s*on_board\s+no\s*\)', block):
-                    continue # Excluded from board
-                if re.search(r'\(\s*in_bom\s+no\s*\)', block):
-                    continue # Excluded from BOM entirely
+                    continue # Excluded from board (DNP - always skip)
+                    
+                # Skip if excluded from BOM unless explicitly told to include them
+                if not include_excluded_from_bom and re.search(r'\(\s*in_bom\s+no\s*\)', block):
+                    continue 
                     
                 ref_match = re.search(r'\(\s*property\s+"Reference"\s+"([^"]+)"', block)
                 if not ref_match: continue

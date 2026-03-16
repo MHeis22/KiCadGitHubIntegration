@@ -532,7 +532,7 @@ class CommandCenterDialog(wx.Dialog):
                 rg = ReadmeGenerator(self.project_dir, self.settings)
                 rg.update_readme(self.kicad_version)
             except Exception as e:
-                print(f"Failed to autogenerate README: {e}")
+                wx.MessageBox(f"Failed to update README.md:\n{e}", "Readme Generation Warning", wx.ICON_WARNING)
         
         status_dict = self.engine.get_git_status(target="HEAD")
         changed_files = list(status_dict.keys())
