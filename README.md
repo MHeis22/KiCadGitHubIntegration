@@ -20,8 +20,9 @@ GitHub Command Center brings powerful version control and manufacturing automati
 
 ## SCREENSHOTS
 -----------
-<img src="https://github.com/MHeis22/KiCad-GitHub-Command-Center/blob/master/assets/MainMenu.png?raw=true" height=275>
-<img src="https://github.com/MHeis22/KiCad-GitHub-Command-Center/blob/master/assets/WebView.png?raw=true" height=275>
+<img src="assets/MainMenu.png" height="275">
+<img src="assets/WebView.png" height="275">
+
 
 ## INSTALLATION
 ------------
@@ -43,7 +44,7 @@ To install the plugin manually, follow these steps:
 ------------------------
 Click the "⚙ Settings" button in the bottom left of the Command Center to configure automated behaviors:
 
-<img src="https://github.com/MHeis22/KiCad-GitHub-Command-Center/blob/master/assets/options.png?raw=true" height=275>
+<img src="assets/options.png" height="275">
 
 * BOM Generation: Choose between Distributor-friendly formats (Qty, Ref, MPN) or detailed Engineering formats.
 * Auto-Readme: Toggle the automatic sticky-footer generation that logs your board dimensions, DRC status, and part counts directly to your GitHub repo's README.
