@@ -2,7 +2,7 @@
     "$schema": "https://go.kicad.org/pcm/schemas/v2",
     "name": "GitHub Command Center",
     "description": "Seamlessly integrate Git. Visual diffs, automatic READMEs, BOM generation, and 1-click gerber export and JLCPCB constraint setup.",
-    "description_full": "GitHub Command Center brings powerful version control and manufacturing automation directly into KiCad.\n\nFeatures include:\n- Visual Diff Engine: See exact graphical changes in PCB traces, components, and schematics between commits.\n- Manufacturing Ready: Automatically applies JLCPCB's safest design constraints (rules) and generates 1-click production Gerber ZIPs.\n- Auto-Documentation: Automatically generates and updates your project's README.md with hardware stats and BOM data.\n- Smart Sync: Safely stash, switch branches, and pull remote changes in other files than KiCad PCB or Schematic files.\n\nRequirement: Git must be installed on your system.",
+    "description_full": "GitHub Command Center brings powerful version control and manufacturing automation directly into KiCad.\n\nFeatures include:\n- Visual Diff Engine: See exact graphical changes in PCB traces, components, and schematics between commits.\n- Manufacturing Ready: Automatically applies JLCPCB's safest design constraints (rules) and generates 1-click production Gerber ZIPs.\n- Auto-Documentation: Automatically generates and updates your project's README.md with hardware stats and BOM data.\n- Smart Sync: Safely stash, switch branches, and seamlessly auto-pull safe text files, or execute a clean force-sync of the latest remote version.\n\nRequirement: Git must be installed on your system.",
     "identifier": "com.github.mheis22.kicad-github-command-center",
     "type": "plugin",
     "author": {

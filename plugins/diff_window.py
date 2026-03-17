@@ -32,7 +32,17 @@ class DiffWindow:
             return ""
 
     def Show(self):
-        html_path = os.path.join(tempfile.gettempdir(), "kicad_diff_viewer.html")
+        base_name = "KiCad"
+        if self.diffs and len(self.diffs) > 0:
+            # Extract the raw project name from the first file (e.g. 'my_board.kicad_pcb' -> 'my_board')
+            base_name = os.path.splitext(self.diffs[0]['name'])[0]
+            
+        # Sanitize the target name so it's safe for Windows/Mac/Linux file systems
+        safe_target = self.target_name.replace('/', '_').replace('\\', '_').replace(' ', '_').replace('*', '')
+        
+        smart_filename = f"{base_name}_Diff_vs_{safe_target}.html"
+        html_path = os.path.join(tempfile.gettempdir(), smart_filename)
+        # --------------------------------
         
         # Prepare data for JavaScript
         js_diffs = []

@@ -14,7 +14,7 @@ GitHub Command Center brings powerful version control and manufacturing automati
 --------
 * Visual Diff Engine: See exact graphical changes in PCB traces, components, and schematics between commits in an exportable and shareable HTML file.
 * Manufacturing Ready: Automatically applies JLCPCB's safest design constraints (rules) and generates 1-click production Gerber ZIPs.
-* Auto-Documentation: Automatically generates and updates your project's README.md with hardware stats,, TODOs, DRC health, and BOM data.
+* Auto-Documentation: Automatically generates and updates your project's README.md with hardware stats, TODOs, DRC health, and BOM data.
 * Workspace Management: Safely stash local changes, switch branches, seamlessly auto-pull safe text files, or execute a clean force-sync of the latest remote version.
 
 
@@ -32,7 +32,7 @@ GitHub Command Center brings powerful version control and manufacturing automati
 To install the plugin manually, follow these steps:
 
 1. Download the latest release ZIP file from: https://github.com/mheis22/kicad-github-command-center/releases
-2. Open KiCads "Plugin and Content Manager"
+2. Open KiCad's "Plugin and Content Manager"
 3. Click "Install from File..."
 4. Select the ZIP file you downloaded 
 

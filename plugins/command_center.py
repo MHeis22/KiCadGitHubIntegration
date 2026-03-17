@@ -525,7 +525,18 @@ class CommandCenterDialog(wx.Dialog):
         if dlg.ShowModal() == wx.ID_OK:
             target = dlg.GetValue().strip()
             if target:
-                self.perform_atomic_overwrite(target)
+                warn_msg = (
+                    f"WARNING: You are about to force sync from '{target}'.\n\n"
+                    "This will PERMANENTLY OVERWRITE your local workspace.\n"
+                    "All uncommitted changes and new untracked files will be DESTROYED.\n\n"
+                    "Are you absolutely sure you want to continue?"
+                )
+                warn_dlg = wx.MessageDialog(self, warn_msg, "Destructive Action Warning", wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING)
+                result = warn_dlg.ShowModal()
+                warn_dlg.Destroy()
+                
+                if result == wx.ID_YES:
+                    self.perform_atomic_overwrite(target)
         dlg.Destroy()
 
     def perform_atomic_overwrite(self, remote_ref):
