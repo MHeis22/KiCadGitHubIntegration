@@ -75,7 +75,7 @@ class DiffEngine:
                     targets.append(target)
             
             # 2. Fetch Recent Commits (With your new truncation fix)
-            res = subprocess.run([self.git_cmd, "-C", self.project_dir, "log", "-n", "10", "--format=%h (%s)"], 
+            res = subprocess.run([self.git_cmd, "-C", self.project_dir, "log", "-n", "15", "--format=%h (%s)"], 
                                  capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
             for line in res.stdout.split('\n'):
                 target = line.strip()
