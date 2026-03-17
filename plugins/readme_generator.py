@@ -6,6 +6,7 @@ import sys
 import subprocess
 import json
 import tempfile
+from .utils import CREATE_NO_WINDOW
 from .kicad_parser import get_pcb_dimensions, get_pcb_layers, get_bom_data, extract_todos, get_pcb_structure
 
 class ReadmeGenerator:
@@ -57,7 +58,8 @@ class ReadmeGenerator:
         try:
             # Run DRC and dump to a temp JSON file
             subprocess.run([kicad_cli, "pcb", "drc", "--format", "json", "--output", out_json, pcb_file], 
-                           capture_output=True, cwd=self.project_dir)
+                           capture_output=True, cwd=self.project_dir,
+                           creationflags=CREATE_NO_WINDOW)
             
             if os.path.exists(out_json):
                 with open(out_json, 'r', encoding='utf-8', errors='ignore') as f:

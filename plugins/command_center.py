@@ -3,6 +3,7 @@ import os
 import subprocess
 import pcbnew
 import webbrowser
+import threading
 from .utils import CREATE_NO_WINDOW, load_settings, save_settings
 from .ui_dialogs import SettingsDialog, CommitDialog
 from .diff_engine import DiffEngine
@@ -650,7 +651,25 @@ class CommandCenterDialog(wx.Dialog):
         dlg.Destroy()
 
     def on_push(self, event):
+        """1. The Trigger: Runs on the main thread, updates UI, starts background work."""
+        if not os.path.isdir(os.path.join(self.project_dir, ".git")):
+            wx.MessageBox("No Git repo found. Please initialize and link first.", "Error")
+            return
+            
+        # Disable the button so the user doesn't click it twice
+        self.btn_push.Disable()
+        self.status_lbl.SetLabel("Status: Pushing to GitHub (Please wait)...")
         wx.BeginBusyCursor()
+        
+        # Fire and forget the background thread
+        thread = threading.Thread(target=self._push_worker)
+        thread.start()
+
+    def _push_worker(self):
+        """2. The Worker: Runs in the background, DOES NOT touch wx elements directly."""
+        success = False
+        message = ""
+        
         try:
             res_br = subprocess.run([self.git_cmd, "-C", self.project_dir, "branch", "--show-current"], 
                                     capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
@@ -658,16 +677,13 @@ class CommandCenterDialog(wx.Dialog):
             
             if self.settings.get('silent_pull', False):
                 subprocess.run([self.git_cmd, "-C", self.project_dir, "fetch", "origin", branch], creationflags=CREATE_NO_WINDOW)
-                
                 res_diff = subprocess.run([self.git_cmd, "-C", self.project_dir, "diff", f"HEAD..origin/{branch}", "--name-only"],
                                           capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
-                
                 changed_files = [f.strip() for f in res_diff.stdout.split('\n') if f.strip()]
                 
                 if changed_files:
                     dangerous_exts = ('.kicad_pcb', '.kicad_sch', '.kicad_pro', '.kicad_prl')
                     has_dangerous = any(f.endswith(dangerous_exts) for f in changed_files)
-                    
                     if not has_dangerous:
                         subprocess.run([self.git_cmd, "-C", self.project_dir, "pull", "--rebase", "-X", "theirs", "origin", branch], 
                                        creationflags=CREATE_NO_WINDOW)
@@ -678,11 +694,32 @@ class CommandCenterDialog(wx.Dialog):
                                  capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
             
             if res.returncode == 0:
-                wx.MessageBox(f"Successfully pushed branch '{branch}' to GitHub.", "Success")
+                success = True
+                message = f"Successfully pushed branch '{branch}' to GitHub."
             else:
-                wx.MessageBox(f"Push Failed:\n{res.stderr.strip()}", "Error")
-        finally:
-            if wx.IsBusy(): wx.EndBusyCursor()
+                success = False
+                message = f"Push Failed:\n{res.stderr.strip()}"
+                
+        except Exception as e:
+            success = False
+            message = f"An unexpected error occurred: {e}"
+            
+        # Safely pass the results back to the main thread
+        wx.CallAfter(self._push_complete, success, message)
+
+    def _push_complete(self, success, message):
+        """3. The Callback: Runs on the main thread, updates the UI based on results."""
+        if wx.IsBusy(): 
+            wx.EndBusyCursor()
+            
+        self.btn_push.Enable()
+        
+        if success:
+            wx.MessageBox(message, "Success")
+        else:
+            wx.MessageBox(message, "Error", wx.ICON_ERROR)
+            
+        self.update_git_status()
 
     def on_open_github(self, event):
         if not os.path.isdir(os.path.join(self.project_dir, ".git")):
