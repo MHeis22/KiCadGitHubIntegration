@@ -6,7 +6,10 @@
     "identifier": "com.github.mheis22.kicad-github-command-center",
     "type": "plugin",
     "author": {
-        "name": "MHeis22"
+        "name": "MHeis22",
+        "contact": {
+            "web": "https://github.com/MHeis22/KiCad-GitHub-Command-Center"
+        }
     },
     "license": "GPL-3.0",
     "resources": {
