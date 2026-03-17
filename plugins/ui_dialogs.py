@@ -40,7 +40,7 @@ class SettingsDialog(wx.Dialog):
         self.cb_bom_dist.SetToolTip("Compact CSV containing only what automated distributor tools need.")
         bom_sizer.Add(self.cb_bom_dist, flag=wx.LEFT | wx.RIGHT | wx.TOP, border=10)
         
-        self.cb_bom_eng = wx.CheckBox(self, label="Generate Engineering BOM (Includes Value and Footprint)")
+        self.cb_bom_eng = wx.CheckBox(self, label="Generate Engineering BOM (Includes Value, Footprint and DNP components)")
         self.cb_bom_eng.SetValue(self.settings.get('generate_bom_eng', False))
         self.cb_bom_eng.SetToolTip("A more detailed CSV easier for human review.")
         bom_sizer.Add(self.cb_bom_eng, flag=wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, border=10)
